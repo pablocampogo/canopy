@@ -76,6 +76,21 @@ func TestAddTransactionFeeOrdering(t *testing.T) {
 	}
 }
 
+func TestCertificateResultsMayExceedIndividualMaxTxSize(t *testing.T) {
+	sig := &Signature{PublicKey: newTestPublicKeyBytes(t), Signature: newTestPublicKeyBytes(t)}
+	msg, err := NewAny(sig)
+	require.NoError(t, err)
+	tx, err := Marshal(&Transaction{MessageType: "certificateResults", Msg: msg, Signature: sig,
+		CreatedHeight: 1, Time: uint64(time.Now().UnixMicro()), NetworkId: 1, ChainId: 1})
+	require.NoError(t, err)
+	mempool := NewMempool(MempoolConfig{MaxTotalBytes: math.MaxUint64, MaxTransactionCount: 10,
+		IndividualMaxTxSize: 1, DropPercentage: 10})
+
+	_, err = mempool.AddTransactions(tx)
+	require.NoError(t, err)
+	require.Equal(t, 1, mempool.TxCount())
+}
+
 func TestAddTransaction(t *testing.T) {
 	// pre-define a test message
 	sig := &Signature{
