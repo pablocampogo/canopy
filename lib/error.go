@@ -244,7 +244,7 @@ const (
 	CodeInvalidQCCommitteeHeight  ErrorCode = 72
 	CodeZeroPointHolder           ErrorCode = 73
 	CodeOrderNotFound             ErrorCode = 74
-
+	CodeInvalidTxNonce            ErrorCode = 75
 	CodeMinimumOrderSize          ErrorCode = 76
 	CodeOrderLocked               ErrorCode = 77
 	CodeInvalidLockOrder          ErrorCode = 78

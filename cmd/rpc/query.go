@@ -754,6 +754,7 @@ func spendableAccountView(sm *fsm.StateMachine, account *fsm.Account) *AccountVi
 	return &AccountView{
 		Address:            account.Address,
 		Amount:             spendable,
+		Nonce:              account.Nonce,
 		TotalAmount:        total,
 		VestedAmount:       vested,
 		LockedAmount:       locked,
