@@ -416,7 +416,9 @@ func (s *StateMachine) handleBatchWithdraw(batch *lib.DexBatch, counterChainId u
 			return err
 		}
 	}
+	// removes legacy zero-point “ghost” LPs
 	p.Points = slices.DeleteFunc(p.Points, func(point *lib.PoolPoints) bool { return point.Points == 0 })
+	// builds an O(1) address lookup containing pointers to the actual pool entries
 	pointsByAddress := make(map[string]*lib.PoolPoints, len(p.Points))
 	for _, point := range p.Points {
 		pointsByAddress[string(point.Address)] = point
@@ -491,6 +493,7 @@ func (s *StateMachine) handleBatchWithdraw(batch *lib.DexBatch, counterChainId u
 			return err
 		}
 	}
+	// second call removes providers whose points became zero during the current withdrawal
 	p.Points = slices.DeleteFunc(p.Points, func(point *lib.PoolPoints) bool { return point.Points == 0 })
 	if p.TotalPoolPoints == 0 {
 		return lib.ErrZeroLiquidityPool()
@@ -530,6 +533,7 @@ func (s *StateMachine) handleBatchDeposit(batch *lib.DexBatch, chainId uint64, x
 			return err
 		}
 	}
+	// if capacity should be checked (recursive func artifact)
 	if checkCap {
 		if handled, e := s.handleCappedBatchDeposit(batch, p, chainId, x, y, local); handled {
 			return e
