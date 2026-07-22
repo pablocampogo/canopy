@@ -10,6 +10,9 @@ import (
 	"strings"
 )
 
+// dexLPMigrationIDDomain separates migration withdrawal IDs from other deterministic DEX IDs.
+const dexLPMigrationIDDomain = "dex-lp-migration-v1"
+
 /* Dex.go implements logic to handle AMM style atomic exchanges between root & nested chains
    not to be confused with 1 way order book swaps implemented in swap.go */
 
@@ -708,7 +711,7 @@ func (s *StateMachine) handleCappedBatchDeposit(batch *lib.DexBatch, p *Pool, ch
 			if !bytes.Equal(point.Address, deadAddr.Bytes()) {
 				// create a full withdrawal with a deterministic migration order ID
 				withdrawals = append(withdrawals, &lib.DexLiquidityWithdraw{Address: point.Address, Percent: 100,
-					OrderId: crypto.ShortHash(lib.JoinLenPrefix([]byte("dex-lp-migration-v1"), batch.ReceiptHash, point.Address))})
+					OrderId: crypto.ShortHash(lib.JoinLenPrefix([]byte(dexLPMigrationIDDomain), batch.ReceiptHash, point.Address))})
 			}
 			// stop after selecting exactly the excess providers
 			if len(withdrawals) == excess {
