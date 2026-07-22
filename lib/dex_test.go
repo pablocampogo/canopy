@@ -276,12 +276,12 @@ func TestDexBatch_CheckBasic_RejectsOverLimitFallbackPoints(t *testing.T) {
 		points[i] = &PoolPoints{Address: make([]byte, crypto.AddressSize), Points: 1}
 	}
 	batch := &DexBatch{PoolPoints: points}
-	if err := batch.CheckBasic(); err == nil {
-		t.Fatal("expected non-fallback batch to reject legacy provider count")
+	if err := batch.CheckBasic(); err == nil || err.Code() != CodeTooManyLiquidityProviders {
+		t.Fatalf("expected too many liquidity providers error, got %v", err)
 	}
 	batch.LivenessFallback = true
-	if err := batch.CheckBasic(); err == nil {
-		t.Fatal("expected fallback batch to reject excess provider count")
+	if err := batch.CheckBasic(); err == nil || err.Code() != CodeTooManyLiquidityProviders {
+		t.Fatalf("expected fallback batch to reject excess provider count, got %v", err)
 	}
 }
 

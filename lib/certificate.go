@@ -915,7 +915,7 @@ func (x *DexBatch) CheckBasic() (err ErrorI) {
 	}
 	// ensure there's not too many liquidity providers
 	if len(x.PoolPoints) > MaxLiquidityProviders {
-		return ErrTooManyDexReceipts()
+		return ErrTooManyLiquidityProviders()
 	}
 	// ensure each pool point is valid
 	for _, point := range x.PoolPoints {
