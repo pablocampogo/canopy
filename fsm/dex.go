@@ -687,35 +687,48 @@ func liquidityDepositPoints(totalPoints, x, y, amount uint64) (uint64, lib.Error
 // handleCappedBatchDeposit migrates legacy pools and deterministically admits the best-funded newcomers.
 // MaxLiquidityProviders bounds serialized point entries, so the permanent dead address consumes one slot.
 func (s *StateMachine) handleCappedBatchDeposit(batch *lib.DexBatch, p *Pool, chainId uint64, x, y *uint64, local bool) (bool, lib.ErrorI) {
+	// initialize vars
 	var err lib.ErrorI
-	// migrate legacy state before newcomer competition by withdrawing its lowest-ranked providers
+	// calculate how many legacy providers must be removed to reach the limit
 	if excess := len(p.Points) - lib.MaxLiquidityProviders; excess > 0 {
+		// rank the providers from lowest to highest points
 		sort.Slice(p.Points, func(i, j int) bool {
+			// rank by points first
 			if p.Points[i].Points != p.Points[j].Points {
 				return p.Points[i].Points < p.Points[j].Points
 			}
+			// break equal-point ties deterministically using the receipt hash
 			return bytes.Compare(liquidityProviderTieBreakHash(batch.ReceiptHash, p.Points[i].Address), liquidityProviderTieBreakHash(batch.ReceiptHash, p.Points[j].Address)) < 0
 		})
+		// preallocate one full withdrawal for each excess provider
 		withdrawals := make([]*lib.DexLiquidityWithdraw, 0, excess)
+		// select the lowest-ranked providers
 		for _, point := range p.Points {
+			// the permanent dead address cannot be evicted
 			if !bytes.Equal(point.Address, deadAddr.Bytes()) {
+				// create a full withdrawal with a deterministic migration order ID
 				withdrawals = append(withdrawals, &lib.DexLiquidityWithdraw{Address: point.Address, Percent: 100,
 					OrderId: crypto.ShortHash(lib.JoinLenPrefix([]byte("dex-lp-migration-v1"), batch.ReceiptHash, point.Address))})
 			}
+			// stop after selecting exactly the excess providers
 			if len(withdrawals) == excess {
 				break
 			}
 		}
+		// ensure the pool contained enough removable providers
 		if len(withdrawals) != excess {
 			return true, ErrInvalidLiquidityPool()
 		}
+		// execute and persist the migration through the standard withdrawal path
 		if err := s.HandleBatchWithdraw(&lib.DexBatch{Withdrawals: withdrawals}, chainId, x, y, local); err != nil {
 			return true, err
 		}
+		// reload the pool updated by HandleBatchWithdraw()
 		migrated, err := s.GetPool(chainId + LiquidityPoolAddend)
 		if err != nil {
 			return true, err
 		}
+		// refresh the working pool before processing the incoming deposits
 		p.Amount = migrated.Amount
 		p.Points = migrated.Points
 		p.TotalPoolPoints = migrated.TotalPoolPoints
