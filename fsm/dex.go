@@ -666,12 +666,12 @@ func (s *StateMachine) handleBatchDeposit(batch *lib.DexBatch, chainId uint64, x
 	return nil
 }
 
-// liquidityProviderTieBreakHash deterministically ranks equal-stake providers using the batch receipt hash.
+// liquidityProviderTieBreakHash() deterministically ranks equal-stake providers using the batch receipt hash.
 func liquidityProviderTieBreakHash(receiptHash, address []byte) []byte {
 	return crypto.Hash(append(bytes.Clone(receiptHash), address...))
 }
 
-// liquidityDepositPoints calculates points minted by a one-sided deposit against the geometric-mean invariant.
+// liquidityDepositPoints() calculates points minted by a one-sided deposit against the geometric-mean invariant.
 func liquidityDepositPoints(totalPoints, x, y, amount uint64) (uint64, lib.ErrorI) {
 	xAfter, overflow := lib.AddUint64(x, amount)
 	if overflow {
@@ -688,18 +688,16 @@ func liquidityDepositPoints(totalPoints, x, y, amount uint64) (uint64, lib.Error
 // MaxLiquidityProviders bounds serialized point entries, so the permanent dead address consumes one slot.
 func (s *StateMachine) handleCappedBatchDeposit(batch *lib.DexBatch, p *Pool, chainId uint64, x, y *uint64, local bool) (bool, lib.ErrorI) {
 	var err lib.ErrorI
-	migrated := len(p.Points) > lib.MaxLiquidityProviders
 	// migrate legacy state before newcomer competition by withdrawing its lowest-ranked providers
 	if excess := len(p.Points) - lib.MaxLiquidityProviders; excess > 0 {
-		rankedPoints := slices.Clone(p.Points)
-		sort.Slice(rankedPoints, func(i, j int) bool {
-			if rankedPoints[i].Points != rankedPoints[j].Points {
-				return rankedPoints[i].Points < rankedPoints[j].Points
+		sort.Slice(p.Points, func(i, j int) bool {
+			if p.Points[i].Points != p.Points[j].Points {
+				return p.Points[i].Points < p.Points[j].Points
 			}
-			return bytes.Compare(liquidityProviderTieBreakHash(batch.ReceiptHash, rankedPoints[i].Address), liquidityProviderTieBreakHash(batch.ReceiptHash, rankedPoints[j].Address)) < 0
+			return bytes.Compare(liquidityProviderTieBreakHash(batch.ReceiptHash, p.Points[i].Address), liquidityProviderTieBreakHash(batch.ReceiptHash, p.Points[j].Address)) < 0
 		})
 		withdrawals := make([]*lib.DexLiquidityWithdraw, 0, excess)
-		for _, point := range rankedPoints {
+		for _, point := range p.Points {
 			if !bytes.Equal(point.Address, deadAddr.Bytes()) {
 				withdrawals = append(withdrawals, &lib.DexLiquidityWithdraw{Address: point.Address, Percent: 100,
 					OrderId: crypto.ShortHash(lib.JoinLenPrefix([]byte("dex-lp-migration-v1"), batch.ReceiptHash, point.Address))})
@@ -711,10 +709,16 @@ func (s *StateMachine) handleCappedBatchDeposit(batch *lib.DexBatch, p *Pool, ch
 		if len(withdrawals) != excess {
 			return true, ErrInvalidLiquidityPool()
 		}
-		// keep migration changes in memory; this function persists the completed pool once
-		if err := s.handleBatchWithdraw(&lib.DexBatch{Withdrawals: withdrawals}, chainId, x, y, local, p, false); err != nil {
+		if err := s.HandleBatchWithdraw(&lib.DexBatch{Withdrawals: withdrawals}, chainId, x, y, local); err != nil {
 			return true, err
 		}
+		migrated, err := s.GetPool(chainId + LiquidityPoolAddend)
+		if err != nil {
+			return true, err
+		}
+		p.Amount = migrated.Amount
+		p.Points = migrated.Points
+		p.TotalPoolPoints = migrated.TotalPoolPoints
 	}
 	type candidate struct {
 		amount   uint64
@@ -751,12 +755,6 @@ func (s *StateMachine) handleCappedBatchDeposit(batch *lib.DexBatch, p *Pool, ch
 	}
 	// if provider count doesn't exceed max liquidity providers, exit
 	if len(p.Points)+len(newcomers) <= lib.MaxLiquidityProviders {
-		if migrated {
-			if err = s.handleBatchDeposit(batch, chainId, x, y, local, false, p, false); err != nil {
-				return true, err
-			}
-			return true, s.SetPool(p)
-		}
 		return false, nil
 	}
 	// otherwise; update all incumbent deposits first
