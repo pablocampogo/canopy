@@ -61,13 +61,7 @@ func (f *FeeMempool) AddTransactions(txs ...[]byte) (recheck bool, err ErrorI) {
 	batchTxs := make(map[string]struct{}, len(txs))
 	txsBytes := 0
 	for _, tx := range txs {
-		// ensure the size of the Transaction doesn't exceed the individual limit
 		txBytes := len(tx)
-		// if the transaction bytes is larger than the max size
-		if uint32(txBytes) > f.config.IndividualMaxTxSize {
-			// exit with error
-			return false, ErrMaxTxSize()
-		}
 		// check if the mempool already contains the transaction
 		hash := crypto.HashString(tx)
 		if _, found := f.pool.m[hash]; found {
@@ -86,6 +80,10 @@ func (f *FeeMempool) AddTransactions(txs ...[]byte) (recheck bool, err ErrorI) {
 		// perform basic validations against the tx object
 		if err = transaction.CheckBasic(); err != nil {
 			return false, err
+		}
+		// certificate results may contain a full DEX batch and remain bounded by MaxTotalBytes
+		if uint32(txBytes) > f.config.IndividualMaxTxSize && transaction.MessageType != "certificateResults" {
+			return false, ErrMaxTxSize()
 		}
 		// extract the fee from the transaction result
 		fee := transaction.Fee
