@@ -27,6 +27,12 @@ const (
 	// MaxOrdersSettledPerBlock caps DEX orders settled per block so begin_block can't exceed the consensus
 	// round budget; orders beyond the cap are failed (receipt 0) and refunded to the seller on the origin chain
 	MaxOrdersSettledPerBlock = 250
+	// MaxLPEvictionsPerBlock caps how many legacy liquidity providers are force-evicted per block when
+	// draining a pool that sits above MaxLiquidityProviders. Like MaxOrdersSettledPerBlock, this bounds the
+	// per-block work so applying the block stays within the consensus round budget: an over-cap pool drains
+	// toward the limit across multiple blocks instead of in a single oversized block that can't be
+	// applied+voted within a consensus phase (which livelocks the chain).
+	MaxLPEvictionsPerBlock = 5_000
 )
 
 // MaxBlockHeaderSize is a consensus breaking change because it affects how the state machine

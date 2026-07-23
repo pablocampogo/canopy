@@ -815,12 +815,20 @@ func liquidityDepositPoints(totalPoints, x, y, amount uint64) (uint64, lib.Error
 	return lib.SafeMulDiv(totalPoints, newK-oldK, oldK), nil
 }
 
-// migrateLegacyLPs() performs the one-time migration of a pool above the provider limit.
+// migrateLegacyLPs() drains a pool sitting above the provider limit down toward MaxLiquidityProviders.
+// The drain is bounded to MaxLPEvictionsPerBlock per block so a large legacy pool (e.g. one that reached the
+// previous 50k limit) is pruned across multiple blocks rather than in a single oversized block that can't be
+// applied within a consensus phase. It runs on every deposit-batch cycle until the pool reaches the cap.
 func (s *StateMachine) migrateLegacyLPs(batch *lib.DexBatch, p *Pool, chainId uint64, x, y *uint64, local bool) lib.ErrorI {
 	// calculate how many legacy providers must be removed to reach the limit
 	excess := len(p.Points) - lib.MaxLiquidityProviders
 	if excess <= 0 {
 		return nil
+	}
+	// bound the per-block eviction work to the consensus round budget (mirrors MaxOrdersSettledPerBlock);
+	// the remaining excess is drained on subsequent blocks until the pool reaches the cap
+	if excess > lib.MaxLPEvictionsPerBlock {
+		excess = lib.MaxLPEvictionsPerBlock
 	}
 	// rank the providers from lowest to highest points
 	sort.Slice(p.Points, func(i, j int) bool {

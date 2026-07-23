@@ -2898,7 +2898,8 @@ func TestHandleBatchDepositRanksNewcomersByProviderTotal(t *testing.T) {
 func TestHandleBatchDepositMigratesPoolBeforeDeposits(t *testing.T) {
 	sm := newTestStateMachine(t)
 	chainID := uint64(2)
-	points := make([]*lib.PoolPoints, 50_000)
+	const initialProviders = 50_000
+	points := make([]*lib.PoolPoints, initialProviders)
 	var total uint64
 	for i := range points {
 		address := make([]byte, crypto.AddressSize)
@@ -2912,17 +2913,36 @@ func TestHandleBatchDepositMigratesPoolBeforeDeposits(t *testing.T) {
 	require.NoError(t, sm.SetPool(&Pool{Id: chainID + LiquidityPoolAddend, Amount: 1_000_000, Points: points, TotalPoolPoints: total}))
 
 	x, y := uint64(1_000_000), uint64(1_000_000)
-	require.NoError(t, sm.HandleBatchDeposit(&lib.DexBatch{Deposits: []*lib.DexLiquidityDeposit{{
+	// deposit from the highest-ranked provider so it always remains an incumbent across the drain
+	deposit := &lib.DexBatch{Deposits: []*lib.DexLiquidityDeposit{{
 		Address: points[len(points)-1].Address, Amount: 100,
-	}}}, chainID, &x, &y, false))
+	}}}
 
+	// the drain is bounded to MaxLPEvictionsPerBlock per block: a single batch prunes exactly that many
+	// lowest-ranked providers, NOT the whole excess at once (which would produce an unappliable block)
+	require.NoError(t, sm.HandleBatchDeposit(deposit, chainID, &x, &y, false))
 	pool, err := sm.GetPool(chainID + LiquidityPoolAddend)
 	require.NoError(t, err)
-	require.Len(t, pool.Points, lib.MaxLiquidityProviders)
+	require.Len(t, pool.Points, initialProviders-lib.MaxLPEvictionsPerBlock)
+	// the lowest-ranked providers are evicted first
 	for _, evicted := range points[1:3] {
 		_, err = pool.GetPointsFor(evicted.Address)
 		require.Error(t, err)
 	}
+
+	// subsequent blocks continue draining MaxLPEvictionsPerBlock at a time until the pool reaches the cap
+	iterations := 1
+	for len(pool.Points) > lib.MaxLiquidityProviders {
+		require.Less(t, iterations, 100, "drain failed to converge")
+		require.NoError(t, sm.HandleBatchDeposit(deposit, chainID, &x, &y, false))
+		pool, err = sm.GetPool(chainID + LiquidityPoolAddend)
+		require.NoError(t, err)
+		iterations++
+	}
+	require.Len(t, pool.Points, lib.MaxLiquidityProviders)
+	// the permanent dead address is never evicted
+	_, err = pool.GetPointsFor(deadAddr.Bytes())
+	require.NoError(t, err)
 }
 
 func TestHandleBatchDepositUsesReceiptHashForEqualStakeTie(t *testing.T) {
