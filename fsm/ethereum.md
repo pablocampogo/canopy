@@ -6,9 +6,7 @@ Canopy accepts standard signed Ethereum transactions and translates them into na
 
 ## CEX integration: use direct EOA transfers
 
-> **Recommended:** integrate CNPY as a native asset using ordinary Ethereum EOA transfers (`to` + `value`). Do not use the pseudo-contract transfer method for deposits or withdrawals.
-
-This is the smallest integration surface. A CEX can reuse its normal Ethereum custody, signing, broadcast, balance, and confirmation pipeline without deploying a contract or operating a bridge. CNPY is Canopy's native asset, and Canopy translates the signed Ethereum transaction into its native state machine.
+This is the smallest integration surface. Existing Ethereum custody, signing, broadcast, balance, and confirmation pipelines can be reused without deploying a contract or operating a bridge. CNPY is Canopy's native asset, and Canopy translates the signed Ethereum transaction into its native state machine.
 
 | Exchange operation | Canopy interface |
 | --- | --- |
@@ -100,13 +98,13 @@ For direct EOA transfers, `value` must be an exact multiple of `10^12` RPC wei. 
 
 ### Exchange-facing RPC methods
 
-The `/v1/eth` endpoint provides the methods normally needed by a CEX:
+The `/v1/eth` endpoint provides the methods normally needed for exchange integration:
 
 - Network and health: `web3_clientVersion`, `net_version`, `net_listening`, `net_peerCount`, `eth_chainId`, `eth_syncing`, `eth_blockNumber`
 - Custody and fees: `eth_getBalance`, `eth_getTransactionCount`, `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `eth_feeHistory`, `eth_estimateGas`, `eth_sendRawTransaction`
 - Confirmation and indexing: `eth_getBlockByNumber`, `eth_getBlockByHash`, block transaction-count methods, transaction lookup methods, `eth_getTransactionReceipt`, `eth_getLogs`, and standard polling filters
 
-A CEX integration does **not** need arbitrary contract execution, approvals, allowances, `transferFrom`, L2 bridge proofs, destination tags, pseudo-contracts, staking, swaps, governance, validator operations, Canopy-native signing, or protobuf transactions.
+The integration does **not** need arbitrary contract execution, approvals, allowances, `transferFrom`, L2 bridge proofs, destination tags, pseudo-contracts, staking, swaps, governance, validator operations, Canopy-native signing, or protobuf transactions.
 
 ## Compatibility boundaries
 
