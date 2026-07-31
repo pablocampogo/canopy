@@ -1,8 +1,8 @@
 # Canopy Ethereum RPC integration
 
-Canopy is an Ethereum-RPC-compatible L1 for native CNPY transfers, so it plugs into existing Ethereum exchange, wallet, hardware-wallet, and indexer tooling, including MetaMask. Use the `/v1/eth` endpoint as a custom Ethereum RPC.
+Canopy is an Ethereum-RPC-compatible L1 for native CNPY transfers, so it plugs into existing Ethereum exchange, wallet, and custody tooling, including MetaMask. Use the `/v1/eth` endpoint as a custom Ethereum RPC.
 
-If your system already supports native ETH transfers, the Canopy flow will look familiar: use Ethereum keys and addresses, sign a normal transaction, submit it with `eth_sendRawTransaction`, and check its receipt.
+If your system already supports native ETH transfers, the flow will look familiar: use Ethereum keys and addresses, sign a normal transaction, submit it with `eth_sendRawTransaction`, and check its receipt. For complete blockchain indexing and reconciliation, use the native Canopy query API alongside the Ethereum endpoint.
 
 ## A simple "EVM" chain
 
@@ -10,18 +10,7 @@ Canopy does not execute arbitrary EVM bytecode. That distinction makes the excha
 
 Canopy is a sovereign L1, not an EVM Layer 2. There is no sequencer-to-L1 bridge lifecycle in the CNPY transfer path. Once a block is committed by NestBFT, it has deterministic finality.
 
-## Start here
-
-1. Connect your Ethereum tooling to `<NODE_URL>/v1/eth`.
-2. Call `eth_chainId` and use the returned value when signing transactions.
-3. Use an Ethereum-compatible `secp256k1` key and its 20-byte `0x` address.
-4. Configure CNPY as a six-decimal asset.
-5. Send CNPY as a normal native transfer using `to` and `value`, with empty calldata.
-6. Track transfers from blocks and confirm them with transaction receipts.
-
-No smart contract, token approval, bridge, memo, or destination tag is needed.
-
-## Connection and asset settings
+## Quick setup
 
 | Setting | Value |
 | --- | --- |
@@ -36,6 +25,8 @@ No smart contract, token approval, bridge, memo, or destination tag is needed.
 | Supported transaction types | Legacy, EIP-2930, and EIP-1559 |
 | Default target block time | 20 seconds |
 | Finality | Deterministic once the block is committed by NestBFT |
+
+Connect to the endpoint, call `eth_chainId`, and use the returned chain ID when signing. No smart contract, token approval, bridge, memo, or destination tag is needed.
 
 ## Send CNPY
 
@@ -62,11 +53,11 @@ For example, the unsigned transaction fields for `1 CNPY` are:
 
 Then:
 
-1. Call `eth_getTransactionCount(custodyAddress, "pending")` and use the returned nonce as-is. Do not add one.
-2. Estimate the fee with `eth_estimateGas` and the normal gas-price or EIP-1559 methods.
-3. Sign the transaction with the chain ID returned by `eth_chainId`.
-4. Broadcast the signed transaction with `eth_sendRawTransaction`.
-5. Poll `eth_getTransactionReceipt` until it returns a receipt, then verify that `status` is `0x1`.
+1. Convert the CNPY amount to the RPC `value` format described below.
+2. Call `eth_getTransactionCount(custodyAddress, "pending")` and use the returned nonce as-is. Do not add one.
+3. Estimate the fee with `eth_estimateGas` and the normal gas-price or EIP-1559 methods.
+4. Sign with the chain ID returned by `eth_chainId`, then broadcast with `eth_sendRawTransaction`.
+5. Poll `eth_getTransactionReceipt` until it returns a receipt and verify that `status` is `0x1`.
 
 The hash returned by `eth_sendRawTransaction` is the transaction's permanent Ethereum-RPC identifier. A successful submission only means the node accepted it into the local mempool; wait for the successful receipt before marking the transfer complete.
 
@@ -92,27 +83,23 @@ Keep balances in six-decimal CNPY internally and multiply by `10^12` when creati
 | `1 CNPY` | `1000000 uCNPY` | `1000000000000000000` |
 | `12.345678 CNPY` | `12345678 uCNPY` | `12345678000000000000` |
 
-## Track transfers
+## Confirm and reconcile transfers
 
-1. Poll `eth_blockNumber` for new committed blocks.
-2. Read each new block and its full transactions with `eth_getBlockByNumber(height, true)`.
-3. Read each transfer's `from`, `to`, and `value` fields. Match the addresses against the addresses you monitor.
-4. Use `eth_getTransactionReceipt` to verify successful inclusion. It returns `null` while the transaction is still pending.
+Use Ethereum RPC for the familiar transfer workflow:
 
-The same scan covers both incoming and outgoing transfers. Native transfers do not require an event log. The block height, hash, parent hash, timestamp, transaction list, and receipt fields needed for tracking come from the committed Canopy block.
+- `eth_getBalance` reads a balance.
+- `eth_getTransactionByHash` looks up a submitted transaction.
+- `eth_getTransactionReceipt` returns `null` while a transaction is pending and a successful receipt after it is included.
+- `eth_getBlockByNumber` can provide an Ethereum-shaped view of a committed Canopy block when existing tooling needs it.
 
-## RPC methods used by most integrations
+Do not use the Ethereum endpoint as the only source for a complete blockchain index. For block-by-block accounting, transaction history, events, and reconciliation, use the [native Canopy RPC](../cmd/rpc/README.md), including:
 
-| Purpose | Methods |
-| --- | --- |
-| Network health | `web3_clientVersion`, `net_version`, `net_listening`, `net_peerCount`, `eth_syncing`, `eth_blockNumber` |
-| Chain configuration | `eth_chainId` |
-| Balances and nonces | `eth_getBalance`, `eth_getTransactionCount` |
-| Fees | `eth_estimateGas`, `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `eth_feeHistory` |
-| Broadcast | `eth_sendRawTransaction` |
-| Blocks and transactions | `eth_getBlockByNumber`, `eth_getBlockByHash`, transaction lookup methods |
-| Confirmation | `eth_getTransactionReceipt` |
-| Optional polling | `eth_getLogs` and standard polling filters |
+- `/v1/query/block-by-height`
+- `/v1/query/txs-by-height`
+- `/v1/query/tx-by-hash`
+- `/v1/query/events-by-height`
+
+The Ethereum block response is a compatibility view of a native Canopy block. Its height, block hash, parent hash, timestamp, and transaction inclusion come from committed Canopy data, but native transactions are adapted into Ethereum-shaped objects and EVM-only fields such as gas accounting, bloom filters, and some roots are synthesized. Likewise, `eth_getLogs` only synthesizes the supported transfer-style logs; it is not a general Canopy event index.
 
 ## Before going to production
 
@@ -121,13 +108,7 @@ The same scan covers both incoming and outgoing transfers. Native transfers do n
 - Use the nonce returned by `eth_getTransactionCount(address, "pending")` directly. It is a next-unused recommendation, so do not add one.
 - Submit batches with equal fees and in nonce order. A higher-fee transaction with a higher nonce can execute first and invalidate lower nonces.
 - Do not rely on Ethereum-style transaction replacement; local replacement of a still-pending nonce is not supported.
-
-## Important compatibility notes
-
-- Canopy supports Ethereum RPC for native transfers, but it does not run arbitrary Ethereum smart-contract bytecode.
 - Only accounts created from Ethereum-compatible keys can sign through Ethereum tooling. A readable `0x` Canopy address is not necessarily controlled by an Ethereum key.
-- Some Ethereum-only block-header fields have no Canopy equivalent and are filled with compatibility values. Use the native Canopy RPC when building a complete native-chain index.
-- Approvals, allowances, `transferFrom`, L2 bridge proofs, staking, swaps, governance, validator operations, Canopy-native signing, and protobuf transactions are not part of the standard native-transfer flow.
 
 The sections below document advanced RPC and protocol behavior. Most native-transfer integrations do not need these details.
 
@@ -138,9 +119,10 @@ The sections below document advanced RPC and protocol behavior. Most native-tran
 
 [fsm/ethereum.go](./ethereum.go) translates signed Ethereum transactions, and [cmd/rpc/eth.go](../cmd/rpc/eth.go) provides the [Ethereum JSON-RPC interface](https://ethereum.org/en/developers/docs/apis/json-rpc/).
 
-### `eth_filters`
+### Filters and logs
 
-Canopy's RPC wrapper fully supports the following methods for `transfers events`:
+The wrapper implements these methods for block and pending-transaction filters and for synthesized native CNPY transfer logs:
+
 - [x] eth_newFilter
 - [x] eth_newBlockFilter
 - [x] eth_newPendingTransactionFilter
@@ -149,11 +131,12 @@ Canopy's RPC wrapper fully supports the following methods for `transfers events`
 - [x] eth_getFilterLogs
 - [x] eth_getLogs
 
-Canopy-specific events for optional staking and swap pseudo-contract calls are not supported.
+This is not a general event interface. Canopy-specific staking and swap events are not exposed through these methods.
 
 ### Blocks and transactions
 
-Canopy's RPC wrapper fully supports the following getter methods for blocks and transactions:
+The wrapper provides Ethereum-compatible responses for these block and transaction methods:
+
 - [x] eth_getBlockByHash
 - [x] eth_getBlockByNumber
 - [x] eth_getTransactionByHash
@@ -161,7 +144,7 @@ Canopy's RPC wrapper fully supports the following getter methods for blocks and 
 - [x] eth_getTransactionByBlockNumberAndIndex
 - [x] eth_getTransactionReceipt
 
-However, it's important to note that block hashes correspond to the Canopy block structure, not Ethereum, and some Ethereum fields may be placeholders and some Canopy fields may be missing.
+The returned block hash identifies the native Canopy block, not an Ethereum-encoded block. Fields with direct Canopy equivalents use committed Canopy data; other Ethereum fields are placeholders or compatibility values, and Canopy-only fields are not present.
 
 Example: `logsBloom` is a placeholder and `totalVDFIterations` is missing
 
