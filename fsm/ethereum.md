@@ -4,7 +4,7 @@ Canopy is an Ethereum-RPC-compatible L1 for native CNPY transfers, so it plugs i
 
 If your system already supports native ETH transfers, the flow will look familiar: use Ethereum keys and addresses, sign a normal transaction, submit it with `eth_sendRawTransaction`, and check its receipt. For complete blockchain indexing and reconciliation, use the native Canopy query API alongside the Ethereum endpoint.
 
-## A simple "EVM" chain
+## Ethereum tooling without an EVM
 
 Canopy does not execute arbitrary EVM bytecode. That distinction makes the exchange integration smaller, not larger: CNPY custody needs only native transfers, and Canopy deliberately translates standard Ethereum transactions into its native state machine.
 
@@ -22,7 +22,7 @@ Canopy is a sovereign L1, not an EVM Layer 2. There is no sequencer-to-L1 bridge
 | RPC `value` precision | 18 decimal places |
 | Minimum transfer | `0.000001 CNPY` (`1 uCNPY`) |
 | Mainnet signing chain ID | `5368709121` (`0x140000001`); verify with `eth_chainId` |
-| Supported transaction types | Legacy, EIP-2930, and EIP-1559 |
+| Supported transaction types | EIP-155 legacy, EIP-2930, and EIP-1559 |
 | Default target block time | 20 seconds |
 | Finality | Deterministic once the block is committed by NestBFT |
 
@@ -55,11 +55,21 @@ Then:
 
 1. Convert the CNPY amount to the RPC `value` format described below.
 2. Call `eth_getTransactionCount(custodyAddress, "pending")` and use the returned nonce as-is. Do not add one.
-3. Estimate the fee with `eth_estimateGas` and the normal gas-price or EIP-1559 methods.
+3. Get the gas limit from `eth_estimateGas` and the gas price from the normal gas-price or EIP-1559 methods. Use the estimate without automatic gas-limit padding unless you intentionally want to pay a higher fee.
 4. Sign with the chain ID returned by `eth_chainId`, then broadcast with `eth_sendRawTransaction`.
 5. Poll `eth_getTransactionReceipt` until it returns a receipt and verify that `status` is `0x1`.
 
 The hash returned by `eth_sendRawTransaction` is the transaction's permanent Ethereum-RPC identifier. A successful submission only means the node accepted it into the local mempool; wait for the successful receipt before marking the transfer complete.
+
+A transaction rejected during later stateful validation does not receive a failed Ethereum receipt. Its receipt remains `null`, and it can disappear from `eth_getTransactionByHash`. Use a bounded pending timeout instead of polling forever. On the node that accepted the submission, the node-local `/v1/query/failed-txs` endpoint can provide a recent failure reason when queried by sender address. Treat a missing receipt after the timeout as dropped or unresolved and reconcile it before assigning a new withdrawal.
+
+Canopy derives the native fee from the signed gas limit, so unused gas is not refunded. The standard calculation still applies:
+
+```text
+fee in CNPY = gas limit * effective gas price / 10^18
+```
+
+For example, a gas limit of `1,000,000` at `10 gwei` costs `0.01 CNPY`. Wallet-added gas-limit padding increases the actual fee.
 
 ## Convert CNPY amounts
 
@@ -75,7 +85,7 @@ RPC wei = uCNPY * 10^12
 uCNPY    = RPC wei / 10^12
 ```
 
-Keep balances in six-decimal CNPY internally and multiply by `10^12` when creating the RPC `value`. The result must be an exact multiple of `10^12`; the node rejects smaller fractions instead of rounding them.
+Store amounts as integer `uCNPY` internally and multiply that integer by `10^12` when creating the RPC `value`. If you instead start with a decimal CNPY amount, multiply it by `10^18`. Use integer or exact-decimal arithmetic, not binary floating point. The result must be an exact multiple of `10^12`; the node rejects smaller fractions instead of rounding them.
 
 | CNPY amount | Internal amount | RPC `value` |
 | ---: | ---: | ---: |
@@ -87,7 +97,7 @@ Keep balances in six-decimal CNPY internally and multiply by `10^12` when creati
 
 Use Ethereum RPC for the familiar transfer workflow:
 
-- `eth_getBalance` reads a balance.
+- `eth_getBalance` reads the account's total balance. For an account with vesting funds, this can be greater than the amount currently spendable; sends and fees can use only the unlocked balance. The native `/v1/query/account` response reports the current spendable `amount` and the `totalAmount`, both in `uCNPY`.
 - `eth_getTransactionByHash` looks up a submitted transaction.
 - `eth_getTransactionReceipt` returns `null` while a transaction is pending and a successful receipt after it is included.
 - `eth_getBlockByNumber` can provide an Ethereum-shaped view of a committed Canopy block when existing tooling needs it.
@@ -100,6 +110,33 @@ Do not use the Ethereum endpoint as the only source for a complete blockchain in
 - `/v1/query/events-by-height`
 
 The Ethereum block response is a compatibility view of a native Canopy block. Its height, block hash, parent hash, timestamp, and transaction inclusion come from committed Canopy data, but native transactions are adapted into Ethereum-shaped objects and EVM-only fields such as gas accounting, bloom filters, and some roots are synthesized. Likewise, `eth_getLogs` only synthesizes the supported transfer-style logs; it is not a general Canopy event index.
+
+Normalize these differences when reconciling native query results:
+
+- Native `sender` and `recipient` addresses omit the `0x` prefix. Compare their 20-byte hexadecimal values case-insensitively.
+- Native message amounts are integer `uCNPY`, not 18-decimal RPC values.
+- The native `txHash` is the Canopy transaction hash and differs from the Ethereum hash returned by `eth_sendRawTransaction`. Store both. `/v1/query/tx-by-hash` accepts the Ethereum hash as a lookup alias, but its response still reports the native hash.
+- `/v1/query/txs-by-height` is paginated. Process every page before advancing the durable block-height checkpoint.
+
+For example, a direct Ethereum-RPC send of `1 CNPY` may appear in a native height scan like this:
+
+```json
+{
+  "sender": "502c0b3d6ccd1c6f164aa5536b2ba2cb9e80c711",
+  "recipient": "4bee8effd84b86cc93044fa59d9624d04f5a5cd0",
+  "messageType": "send",
+  "transaction": {
+    "msg": {
+      "amount": 1000000
+    }
+  },
+  "txHash": "<native Canopy transaction hash>"
+}
+```
+
+Match monitored addresses after normalizing the prefix, account for `amount` as `uCNPY`, and retain the native hash alongside the Ethereum hash recorded at submission.
+
+For a withdrawal, record the Ethereum hash immediately after submission. Once committed, query `/v1/query/tx-by-hash` with that Ethereum hash and record the native `txHash` from the response. This creates a durable mapping between the identifier used by Ethereum tooling and the identifier returned by native height scans.
 
 ## Before going to production
 
@@ -177,7 +214,7 @@ Example: `logsBloom` is a placeholder and `totalVDFIterations` is missing
 }
 ```
 
-Transactions and receipts are exposed as separate Ethereum-style RPC objects.
+Transactions and receipts are exposed as separate Ethereum-style RPC objects. A successful `1 CNPY` send includes a synthesized pseudo-token `Transfer` log. Selected receipt fields look like this:
 
 ```json
 {
@@ -193,8 +230,23 @@ Transactions and receipts are exposed as separate Ethereum-style RPC objects.
     "type": "0x2",
     "status": "0x1",
     "cumulativeGasUsed": "0x61a8",
-    "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-    "logs": [],
+    "logs": [
+      {
+        "address": "0x0000000000000000000000000000000000000001",
+        "topics": [
+          "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+          "0x000000000000000000000000502c0b3d6ccd1c6f164aa5536b2ba2cb9e80c711",
+          "0x0000000000000000000000004bee8effd84b86cc93044fa59d9624d04f5a5cd0"
+        ],
+        "data": "0x00000000000000000000000000000000000000000000000000000000000f4240",
+        "blockNumber": "0x2bf",
+        "transactionHash": "0x4cee33e51f911a3bc8b4fb0b873df9666d31daa7288b6be5aea81e95998ad2a0",
+        "transactionIndex": "0x0",
+        "blockHash": "0x64e57bce8f087f83efbfcacde6e9afb9fdee8c0319bdbcfc87034bdc4c8574c1",
+        "logIndex": "0x0",
+        "removed": false
+      }
+    ],
     "gasUsed": "0x61a8",
     "contractAddress": null,
     "effectiveGasPrice": "0x2540be400"
