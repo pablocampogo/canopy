@@ -1,52 +1,56 @@
-# Ethereum RPC integration for Canopy
+# Canopy Ethereum RPC integration
 
-[fsm/ethereum.go](./ethereum.go) and [cmd/rpc/eth.go](../cmd/rpc/eth.go) implement Canopy's Ethereum translation and JSON-RPC layers.
+Canopy is an Ethereum-RPC-compatible L1 for native CNPY transfers, so it plugs into existing Ethereum exchange, wallet, hardware-wallet, and indexer tooling, including MetaMask. Use the `/v1/eth` endpoint as a custom Ethereum RPC.
 
-Canopy accepts standard signed Ethereum transactions and translates them into native Canopy transactions. This provides Ethereum-compatible keys, addresses, signing, transaction hashes, RPC calls, and indexing for native CNPY transfers, so existing exchange, wallet, hardware-wallet, and indexer tooling can use Canopy through `/v1/eth`. Canopy does not execute arbitrary EVM bytecode.
+If your system already supports native ETH transfers, the Canopy flow will look familiar: use Ethereum keys and addresses, sign a normal transaction, submit it with `eth_sendRawTransaction`, and check its receipt.
 
-## CEX integration: use direct EOA transfers
+## A simple "EVM" chain
 
-This is the smallest integration surface. Existing Ethereum custody, signing, broadcast, balance, and confirmation pipelines can be reused without deploying a contract or operating a bridge. CNPY is Canopy's native asset, and Canopy translates the signed Ethereum transaction into its native state machine.
+Canopy does not execute arbitrary EVM bytecode. That distinction makes the exchange integration smaller, not larger: CNPY custody needs only native transfers, and Canopy deliberately translates standard Ethereum transactions into its native state machine.
 
-| Exchange operation | Canopy interface |
-| --- | --- |
-| Custody keys | Ethereum-compatible `secp256k1` |
-| Addresses | 20-byte `0x` addresses |
-| Withdrawal signing | Standard Ethereum RLP; legacy, EIP-2930, and EIP-1559 are accepted |
-| Broadcast | `eth_sendRawTransaction` |
-| Deposit indexing | `eth_blockNumber` and `eth_getBlockByNumber` |
-| Confirmation | `eth_getTransactionReceipt`; `null` before inclusion |
-| Balance | `eth_getBalance` |
-| Fee discovery | `eth_estimateGas`, `eth_gasPrice`, and EIP-1559 fee methods |
-| Contract or bridge | Not required |
-| Memo or destination tag | Not required |
+Canopy is a sovereign L1, not an EVM Layer 2. There is no sequencer-to-L1 bridge lifecycle in the CNPY transfer path. Once a block is committed by NestBFT, it has deterministic finality.
 
-### Network and asset parameters
+## Start here
 
-| Parameter | Value |
+1. Connect your Ethereum tooling to `<NODE_URL>/v1/eth`.
+2. Call `eth_chainId` and use the returned value when signing transactions.
+3. Use an Ethereum-compatible `secp256k1` key and its 20-byte `0x` address.
+4. Configure CNPY as a six-decimal asset.
+5. Send CNPY as a normal native transfer using `to` and `value`, with empty calldata.
+6. Track transfers from blocks and confirm them with transaction receipts.
+
+No smart contract, token approval, bridge, memo, or destination tag is needed.
+
+## Connection and asset settings
+
+| Setting | Value |
 | --- | --- |
 | Asset | CNPY, the native asset |
-| Native precision | 6 decimal places |
-| Ethereum RPC precision | 18 decimal places |
-| Smallest transfer | `0.000001 CNPY` (`1 uCNPY`) |
-| JSON-RPC route | `/v1/eth` |
-| Mainnet EVM signing chain ID | `5368709121` (`0x140000001`); always verify with `eth_chainId` |
-| Default target block time | 20 seconds; measure the production endpoint when setting alerts |
-| Finality | A block committed by NestBFT has deterministic finality |
+| RPC endpoint | `<NODE_URL>/v1/eth` |
+| Key type | Ethereum-compatible `secp256k1` |
+| Address format | `0x` followed by 40 hexadecimal characters |
+| Asset precision | 6 decimal places |
+| RPC `value` precision | 18 decimal places |
+| Minimum transfer | `0.000001 CNPY` (`1 uCNPY`) |
+| Mainnet signing chain ID | `5368709121` (`0x140000001`); verify with `eth_chainId` |
+| Supported transaction types | Legacy, EIP-2930, and EIP-1559 |
+| Default target block time | 20 seconds |
+| Finality | Deterministic once the block is committed by NestBFT |
 
-Canopy is a sovereign L1, not an EVM L2. There is no sequencer, L1 bridge, challenge window, or bridge-proof lifecycle in the CNPY deposit and withdrawal path.
+## Send CNPY
 
-### Withdrawal flow
+There is no separate deposit or withdrawal transaction type on-chain. Both are native CNPY sends from one address to another; the names only describe how your system sees the transfer:
 
-1. Query `eth_chainId` from the target endpoint and use that value when signing.
-2. Query `eth_getTransactionCount(custodyAddress, "pending")` and use the returned nonce directly. Do not increment it.
-3. Convert the six-decimal CNPY amount to 18-decimal RPC units as described below.
-4. Estimate fees with `eth_estimateGas` and the standard gas-price or EIP-1559 methods.
-5. Sign a standard Ethereum transaction whose `to` is the recipient, whose `value` is the amount, and whose calldata is empty.
-6. Submit the signed bytes with `eth_sendRawTransaction`.
-7. Poll `eth_getTransactionReceipt` until it is non-null and verify successful inclusion.
+- An incoming transfer to an address you monitor is a deposit.
+- An outgoing transfer that you sign and broadcast is a withdrawal.
 
-Conceptual transaction fields for a `1 CNPY` withdrawal:
+Create the same kind of transaction used for a native ETH transfer:
+
+- Set `to` to the recipient's `0x` address.
+- Set `value` to the amount in 18-decimal RPC units.
+- Leave `data` empty (`0x`).
+
+For example, the unsigned transaction fields for `1 CNPY` are:
 
 ```json
 {
@@ -56,13 +60,21 @@ Conceptual transaction fields for a `1 CNPY` withdrawal:
 }
 ```
 
-The returned transaction hash is the canonical Keccak hash of the signed Ethereum transaction and remains the same through Ethereum-RPC indexing.
+Then:
 
-`eth_sendRawTransaction` acknowledges parsing and local mempool insertion, not final execution. Treat the transaction as confirmed only after a successful, non-null receipt.
+1. Call `eth_getTransactionCount(custodyAddress, "pending")` and use the returned nonce as-is. Do not add one.
+2. Estimate the fee with `eth_estimateGas` and the normal gas-price or EIP-1559 methods.
+3. Sign the transaction with the chain ID returned by `eth_chainId`.
+4. Broadcast the signed transaction with `eth_sendRawTransaction`.
+5. Poll `eth_getTransactionReceipt` until it returns a receipt, then verify that `status` is `0x1`.
 
-### Amount conversion
+The hash returned by `eth_sendRawTransaction` is the transaction's permanent Ethereum-RPC identifier. A successful submission only means the node accepted it into the local mempool; wait for the successful receipt before marking the transfer complete.
 
-Canopy stores integer micro-CNPY (`uCNPY`) with six decimals, while Ethereum JSON-RPC represents native value with 18 decimals:
+## Convert CNPY amounts
+
+This is the main conversion to remember: CNPY has 6 decimal places, while Ethereum RPC uses an 18-decimal `value`.
+
+“RPC wei” is only the Ethereum-compatible unit used by the RPC interface. The asset being transferred is still CNPY, not ETH.
 
 ```text
 1 CNPY  = 1,000,000 uCNPY = 1,000,000,000,000,000,000 RPC wei
@@ -72,52 +84,59 @@ RPC wei = uCNPY * 10^12
 uCNPY    = RPC wei / 10^12
 ```
 
-For direct EOA transfers, `value` must be an exact multiple of `10^12` RPC wei. The node rejects fractional `uCNPY`; it does not round. Keep CNPY configured as a six-decimal asset internally and apply the `10^12` scale only in the Ethereum RPC adapter.
+Keep balances in six-decimal CNPY internally and multiply by `10^12` when creating the RPC `value`. The result must be an exact multiple of `10^12`; the node rejects smaller fractions instead of rounding them.
 
-| User amount | Internal amount | Transaction `value` |
+| CNPY amount | Internal amount | RPC `value` |
 | ---: | ---: | ---: |
 | `0.000001 CNPY` | `1 uCNPY` | `1000000000000` |
 | `1 CNPY` | `1000000 uCNPY` | `1000000000000000000` |
 | `12.345678 CNPY` | `12345678 uCNPY` | `12345678000000000000` |
 
-### Deposits and reconciliation
+## Track transfers
 
-- Scan committed blocks with `eth_getBlockByNumber` or transaction lookup methods and identify native transfers to exchange-controlled addresses.
-- Index native `value` transfers whose `to` field is an exchange-controlled address; the recommended withdrawal and deposit flow uses empty calldata and does not rely on an event log.
-- Use `eth_getTransactionReceipt` for inclusion status. Pending transactions return `null` until included.
-- Canopy block height, hash, parent hash, timestamp, transaction lists, inclusion fields, and receipt fields are backed by committed Canopy blocks.
-- A few EVM-only header fields with no Canopy equivalent are synthesized for schema compatibility. Use the native Canopy RPC if a complete native block index is required.
+1. Poll `eth_blockNumber` for new committed blocks.
+2. Read each new block and its full transactions with `eth_getBlockByNumber(height, true)`.
+3. Read each transfer's `from`, `to`, and `value` fields. Match the addresses against the addresses you monitor.
+4. Use `eth_getTransactionReceipt` to verify successful inclusion. It returns `null` while the transaction is still pending.
 
-### Operational notes
+The same scan covers both incoming and outgoing transfers. Native transfers do not require an event log. The block height, hash, parent hash, timestamp, transaction list, and receipt fields needed for tracking come from the committed Canopy block.
 
-- Use sticky routing for nonce-sensitive requests in a load-balanced deployment. Pending visibility is node-local until commitment.
-- Query `"pending"` before withdrawals or reserve nonces locally. The result is a next-unused recommendation and must not be incremented.
-- Submit same-fee transactions in nonce order. A higher-fee transaction with a higher nonce can execute first and invalidate lower nonces from the same sender.
-- Local replacement of a still-cached transaction with the same nonce is not supported.
-- Only Ethereum-derived `secp256k1` accounts are writable through Ethereum tooling. A readable 20-byte Canopy address is not necessarily spendable with an Ethereum key.
+## RPC methods used by most integrations
 
-### Exchange-facing RPC methods
+| Purpose | Methods |
+| --- | --- |
+| Network health | `web3_clientVersion`, `net_version`, `net_listening`, `net_peerCount`, `eth_syncing`, `eth_blockNumber` |
+| Chain configuration | `eth_chainId` |
+| Balances and nonces | `eth_getBalance`, `eth_getTransactionCount` |
+| Fees | `eth_estimateGas`, `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `eth_feeHistory` |
+| Broadcast | `eth_sendRawTransaction` |
+| Blocks and transactions | `eth_getBlockByNumber`, `eth_getBlockByHash`, transaction lookup methods |
+| Confirmation | `eth_getTransactionReceipt` |
+| Optional polling | `eth_getLogs` and standard polling filters |
 
-The `/v1/eth` endpoint provides the methods normally needed for exchange integration:
+## Before going to production
 
-- Network and health: `web3_clientVersion`, `net_version`, `net_listening`, `net_peerCount`, `eth_chainId`, `eth_syncing`, `eth_blockNumber`
-- Custody and fees: `eth_getBalance`, `eth_getTransactionCount`, `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `eth_feeHistory`, `eth_estimateGas`, `eth_sendRawTransaction`
-- Confirmation and indexing: `eth_getBlockByNumber`, `eth_getBlockByHash`, block transaction-count methods, transaction lookup methods, `eth_getTransactionReceipt`, `eth_getLogs`, and standard polling filters
+- Measure the production endpoint's actual block time when setting timeouts and alerts; the default target is 20 seconds.
+- Use sticky routing for nonce-sensitive requests behind a load balancer. Pending transaction information is local to each node until a block is committed.
+- Use the nonce returned by `eth_getTransactionCount(address, "pending")` directly. It is a next-unused recommendation, so do not add one.
+- Submit batches with equal fees and in nonce order. A higher-fee transaction with a higher nonce can execute first and invalidate lower nonces.
+- Do not rely on Ethereum-style transaction replacement; local replacement of a still-pending nonce is not supported.
 
-The integration does **not** need arbitrary contract execution, approvals, allowances, `transferFrom`, L2 bridge proofs, destination tags, pseudo-contracts, staking, swaps, governance, validator operations, Canopy-native signing, or protobuf transactions.
+## Important compatibility notes
 
-## Compatibility boundaries
+- Canopy supports Ethereum RPC for native transfers, but it does not run arbitrary Ethereum smart-contract bytecode.
+- Only accounts created from Ethereum-compatible keys can sign through Ethereum tooling. A readable `0x` Canopy address is not necessarily controlled by an Ethereum key.
+- Some Ethereum-only block-header fields have no Canopy equivalent and are filled with compatibility values. Use the native Canopy RPC when building a complete native-chain index.
+- Approvals, allowances, `transferFrom`, L2 bridge proofs, staking, swaps, governance, validator operations, Canopy-native signing, and protobuf transactions are not part of the standard native-transfer flow.
 
-Canopy's Ethereum RPC is a compatibility layer for native transfers, wallets, CEX onboarding, and standard indexer-style tooling. It is not full EVM equivalence:
+The sections below document advanced RPC and protocol behavior. Most native-transfer integrations do not need these details.
 
-- The chain does not execute arbitrary Ethereum smart contracts.
-- Logs are synthesized for the supported transfer model, not arbitrary contract events.
-- Nonce handling is gap-tolerant and intentionally differs from an Ethereum consecutive-nonce transaction pool.
-- Any Canopy account represented by a 20-byte address can be read through compatible RPC methods, but only Ethereum-derived accounts have Ethereum signing support.
+## Advanced RPC and protocol reference
 
-## Technical reference
+<details>
+<summary>Show advanced implementation details</summary>
 
-`cmd/rpc/eth.go` wraps Canopy with the [Ethereum JSON-RPC interface](https://ethereum.org/en/developers/docs/apis/json-rpc/).
+[fsm/ethereum.go](./ethereum.go) translates signed Ethereum transactions, and [cmd/rpc/eth.go](../cmd/rpc/eth.go) provides the [Ethereum JSON-RPC interface](https://ethereum.org/en/developers/docs/apis/json-rpc/).
 
 ### `eth_filters`
 
@@ -336,7 +355,7 @@ Ethereum tools like MetaMask. This preserves compatibility while keeping gas pri
 
 ## Optional pseudo-contract compatibility
 
-> **Not recommended for CEX integration.** Pseudo-contracts are a non-standard compatibility surface for optional token-style, staking, subsidy, and swap operations. Deposits and withdrawals should use the direct EOA method documented above.
+Pseudo-contracts are not needed for standard CNPY transfers. They are a non-standard compatibility surface for optional token-style, staking, subsidy, and swap operations.
 
 Canopy does not execute code at these addresses. It recognizes the address and selector, then translates the payload into a native Canopy message.
 
@@ -360,3 +379,5 @@ Pseudo-contract amounts use native six-decimal `uCNPY`, unlike the 18-decimal RP
 - `transfer(address,uint256)` (`0xa9059cbb`) for the CNPY pseudo-contract only
 
 Approvals, allowances, `transferFrom`, allowance adjustment, and minting are not supported. Staking and swap pseudo-contract calls do not emit supported events.
+
+</details>
