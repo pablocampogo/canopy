@@ -276,7 +276,9 @@ func newTestIndexerBlobServerWithHeights(t *testing.T, height uint64) *Server {
 	t.Helper()
 
 	log := lib.NewDefaultLogger()
-	db, err := store.NewStoreInMemory(log)
+	config := lib.DefaultConfig()
+	config.StoreConfig.StateChangeJournalEnabled = true
+	db, err := store.NewStoreInMemory(log, config)
 	require.NoError(t, err)
 
 	sm := newTestRPCStateMachine(t, db, log)

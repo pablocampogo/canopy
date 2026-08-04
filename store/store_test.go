@@ -30,6 +30,8 @@ func TestStoreSetGetDelete(t *testing.T) {
 func TestStateChangeKeys(t *testing.T) {
 	st, _, cleanup := testStore(t)
 	defer cleanup()
+	require.False(t, st.config.StoreConfig.StateChangeJournalEnabled)
+	st.config.StoreConfig.StateChangeJournalEnabled = true
 
 	accountPrefix := lib.JoinLenPrefix([]byte{1})
 	accountA := lib.JoinLenPrefix([]byte{1}, []byte("account-a"))
