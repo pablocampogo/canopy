@@ -262,6 +262,13 @@ func (s *Store) Commit() (root []byte, err lib.ErrorI) {
 	}
 	// collect LSS tombstones before Flush() clears the txn operations
 	lssDeleteKeys := s.collectLssDeleteKeys()
+	// Persist the keys touched by this commit outside consensus state. Indexer
+	// blob queries use this journal to avoid scanning millions of unchanged
+	// accounts at every height.
+	if err = s.recordStateChangeKeys(nextVersion); err != nil {
+		s.Reset()
+		return nil, err
+	}
 	// commit the in-memory txn to the pebbleDB batch
 	if e := s.Flush(); e != nil {
 		s.Reset()
@@ -290,6 +297,19 @@ func (s *Store) Commit() (root []byte, err lib.ErrorI) {
 	s.MaybeBackup()
 	// return the root
 	return
+}
+
+// recordStateChangeKeys snapshots the pending state transaction before Flush
+// clears it. Values are already available from the versioned state store, so
+// the journal only needs keys.
+func (s *Store) recordStateChangeKeys(version uint64) lib.ErrorI {
+	s.ss.txn.l.Lock()
+	keys := make([][]byte, 0, len(s.ss.txn.ops))
+	for _, op := range s.ss.txn.ops {
+		keys = append(keys, bytes.Clone(op.key))
+	}
+	s.ss.txn.l.Unlock()
+	return s.Indexer.indexStateChangeKeys(version, keys)
 }
 
 // Rollback rewinds the store to a previous version (height).

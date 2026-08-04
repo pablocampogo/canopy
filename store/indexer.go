@@ -29,15 +29,66 @@ var (
 	eventHeightPrefix  = []byte{11} // store key prefix for events by block height
 	eventChainIdPrefix = []byte{12} // store key prefix for events by chainId
 	eventHashPrefix    = []byte{13} // store key prefix for events by event hash (concept just used for indexing)
+	stateChangePrefix  = []byte{14} // state keys written at a particular committed version
 	// create indexer cache
 	blockCache, _ = lru.New[uint64, *lib.BlockResult](64)
 	//qcCache, _ = lru.New[uint64, *lib.QuorumCertificate](4) TODO add back
 )
 
+var stateChangeMarker = []byte{1}
+
 // Indexer: the part of the DB that stores transactions, blocks, and quorum certificates
 type Indexer struct {
 	db     *Txn
 	config lib.Config
+}
+
+// StateChangeKeys returns state keys written while committing version, optionally
+// restricted to a state-key prefix. The available result distinguishes a
+// journaled version with no matching changes from a pre-journal version.
+func (t *Indexer) StateChangeKeys(version uint64, prefix []byte) (keys [][]byte, available bool, err lib.ErrorI) {
+	versionPrefix := t.stateChangeVersionPrefix(version)
+	marker, err := t.db.Get(versionPrefix)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(marker) == 0 {
+		return nil, false, nil
+	}
+
+	searchPrefix := lib.Append(versionPrefix, prefix)
+	it, err := t.db.Iterator(searchPrefix)
+	if err != nil {
+		return nil, false, err
+	}
+	defer it.Close()
+	for ; it.Valid(); it.Next() {
+		key := it.Key()
+		if len(key) <= len(versionPrefix) {
+			continue
+		}
+		keys = append(keys, bytes.Clone(key[len(versionPrefix):]))
+	}
+	return keys, true, nil
+}
+
+// indexStateChangeKeys records the commit marker even when keys is empty so
+// readers can safely use an empty delta without falling back to a full scan.
+func (t *Indexer) indexStateChangeKeys(version uint64, keys [][]byte) lib.ErrorI {
+	versionPrefix := t.stateChangeVersionPrefix(version)
+	if err := t.db.Set(versionPrefix, stateChangeMarker); err != nil {
+		return err
+	}
+	for _, key := range keys {
+		if err := t.db.Set(lib.Append(versionPrefix, key), stateChangeMarker); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *Indexer) stateChangeVersionPrefix(version uint64) []byte {
+	return t.key(stateChangePrefix, t.encodeBigEndian(version), nil)
 }
 
 // BLOCKS CODE BELOW

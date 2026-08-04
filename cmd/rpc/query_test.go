@@ -35,7 +35,7 @@ func TestIndexerBlobs_IgnoresLegacyDeltaField(t *testing.T) {
 	require.NotNil(t, got.Previous)
 }
 
-func TestIndexerBlobsCached_CachesDeltaResponsesOnly(t *testing.T) {
+func TestIndexerBlobsCached_CachesJournalDeltaResponsesOnly(t *testing.T) {
 	server := newTestIndexerBlobServer(t)
 
 	got, bz, err := server.IndexerBlobsCached(3)
@@ -48,10 +48,9 @@ func TestIndexerBlobsCached_CachesDeltaResponsesOnly(t *testing.T) {
 	entry, ok := server.indexerBlobCache.get(3)
 	require.True(t, ok)
 	require.NotNil(t, entry)
-	require.NotNil(t, entry.current)
+	require.Nil(t, entry.current)
 	require.NotNil(t, entry.deltaBlobs)
 	require.NotEmpty(t, entry.deltaBytes)
-	require.Len(t, entry.current.Accounts, 2)
 	require.Same(t, got, entry.deltaBlobs)
 	require.Equal(t, bz, entry.deltaBytes)
 
@@ -61,7 +60,7 @@ func TestIndexerBlobsCached_CachesDeltaResponsesOnly(t *testing.T) {
 	require.Equal(t, entry.deltaBytes, bzAgain)
 }
 
-func TestIndexerBlobsCached_RetainsOnlyLatestFullSnapshot(t *testing.T) {
+func TestIndexerBlobsCached_JournalPathRetainsNoFullSnapshots(t *testing.T) {
 	server := newTestIndexerBlobServerWithHeights(t, 4)
 
 	got3, _, err := server.IndexerBlobsCached(3)
@@ -71,7 +70,7 @@ func TestIndexerBlobsCached_RetainsOnlyLatestFullSnapshot(t *testing.T) {
 	entry3, ok := server.indexerBlobCache.get(3)
 	require.True(t, ok)
 	require.NotNil(t, entry3)
-	require.NotNil(t, entry3.current)
+	require.Nil(t, entry3.current)
 
 	got4, _, err := server.IndexerBlobsCached(4)
 	require.NoError(t, err)
@@ -88,9 +87,43 @@ func TestIndexerBlobsCached_RetainsOnlyLatestFullSnapshot(t *testing.T) {
 	entry4, ok := server.indexerBlobCache.get(4)
 	require.True(t, ok)
 	require.NotNil(t, entry4)
-	require.NotNil(t, entry4.current)
+	require.Nil(t, entry4.current)
 	require.NotNil(t, entry4.deltaBlobs)
 	require.NotEmpty(t, entry4.deltaBytes)
+}
+
+func TestIndexerBlobsCached_JournalPathIncludesUnchangedRewardAccount(t *testing.T) {
+	server := newTestIndexerBlobServer(t)
+	sm := server.controller.FSM
+	db := sm.Store().(lib.StoreI)
+	rewardAddress := bytes.Repeat([]byte{0x11}, crypto.AddressSize)
+
+	require.NoError(t, db.IndexBlock(&lib.BlockResult{
+		BlockHeader: &lib.BlockHeader{
+			Height: 3,
+			Hash:   crypto.Hash([]byte("block-3-reward")),
+			Time:   uint64(time.Now().UnixMicro()),
+		},
+		Events: []*lib.Event{{
+			EventType: string(lib.EventTypeReward),
+			Address:   rewardAddress,
+		}},
+	}))
+	_, err := db.Commit()
+	require.NoError(t, err)
+	setFSMHeight(t, sm, 4)
+
+	got, _, err := server.IndexerBlobsCached(4)
+	require.NoError(t, err)
+	require.Len(t, got.Current.Accounts, 1)
+	require.Len(t, got.Previous.Accounts, 1)
+	rewardAccount := new(fsm.Account)
+	require.NoError(t, lib.Unmarshal(got.Current.Accounts[0], rewardAccount))
+	require.Equal(t, rewardAddress, rewardAccount.Address)
+
+	entry, ok := server.indexerBlobCache.get(4)
+	require.True(t, ok)
+	require.Nil(t, entry.current)
 }
 
 func TestAccountQueryReturnsVestingBreakdown(t *testing.T) {
