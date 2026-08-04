@@ -126,6 +126,52 @@ func TestIndexerBlobsCached_JournalPathIncludesUnchangedRewardAccount(t *testing
 	require.Nil(t, entry.current)
 }
 
+func TestIndexerBlobsCached_HeightTwoPreservesGenesisAccounts(t *testing.T) {
+	log := lib.NewDefaultLogger()
+	db, err := store.NewStoreInMemory(log)
+	require.NoError(t, err)
+	defer db.Close()
+	sm := newTestRPCStateMachine(t, db, log)
+	genesisAddress := crypto.NewAddress(bytes.Repeat([]byte{0x61}, crypto.AddressSize))
+	blockOneAddress := crypto.NewAddress(bytes.Repeat([]byte{0x62}, crypto.AddressSize))
+
+	require.NoError(t, sm.SetParams(fsm.DefaultParams()))
+	require.NoError(t, sm.SetAccount(&fsm.Account{Address: genesisAddress.Bytes(), Amount: 100}))
+	_, err = db.Commit()
+	require.NoError(t, err)
+
+	require.NoError(t, sm.SetAccount(&fsm.Account{Address: blockOneAddress.Bytes(), Amount: 50}))
+	require.NoError(t, db.IndexBlock(&lib.BlockResult{
+		BlockHeader: &lib.BlockHeader{
+			Height: 1,
+			Hash:   crypto.Hash([]byte("block-1-genesis-boundary")),
+			Time:   uint64(time.Now().UnixMicro()),
+		},
+	}))
+	_, err = db.Commit()
+	require.NoError(t, err)
+	setFSMHeight(t, sm, 2)
+
+	server := &Server{
+		controller:       &controller.Controller{FSM: sm},
+		indexerBlobCache: newIndexerBlobCache(8),
+		logger:           log,
+	}
+	got, _, err := server.IndexerBlobsCached(2)
+	require.NoError(t, err)
+	require.Nil(t, got.Previous)
+	require.Len(t, got.Current.Accounts, 2)
+
+	addresses := make(map[string]struct{}, len(got.Current.Accounts))
+	for _, raw := range got.Current.Accounts {
+		account := new(fsm.Account)
+		require.NoError(t, lib.Unmarshal(raw, account))
+		addresses[string(account.Address)] = struct{}{}
+	}
+	require.Contains(t, addresses, string(genesisAddress.Bytes()))
+	require.Contains(t, addresses, string(blockOneAddress.Bytes()))
+}
+
 func TestAccountQueryReturnsVestingBreakdown(t *testing.T) {
 	server := newTestIndexerBlobServer(t)
 	sm := server.controller.FSM

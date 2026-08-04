@@ -45,6 +45,13 @@ func (s *StateMachine) IndexerBlobsFromStateChanges(height uint64) (b *IndexerBl
 	if height == 0 || height > s.height {
 		height = s.height
 	}
+	// At the genesis boundary there is no previous blob to compare against, so
+	// the indexer contract requires the complete current account snapshot. The
+	// height journal only contains changes made by block 1 and cannot represent
+	// genesis accounts that remained untouched.
+	if height == 2 {
+		return nil, false, nil
+	}
 	reader, ok := s.store.(stateChangeReader)
 	if !ok {
 		return nil, false, nil
