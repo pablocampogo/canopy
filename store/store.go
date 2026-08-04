@@ -301,7 +301,7 @@ func (s *Store) Commit() (root []byte, err lib.ErrorI) {
 
 // recordStateChangeKeys snapshots the pending state transaction before Flush
 // clears it. Values are already available from the versioned state store, so
-// the journal only needs keys.
+// the journal only needs keys
 func (s *Store) recordStateChangeKeys(version uint64) lib.ErrorI {
 	s.ss.txn.l.Lock()
 	keys := make([][]byte, 0, len(s.ss.txn.ops))

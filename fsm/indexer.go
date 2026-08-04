@@ -11,10 +11,6 @@ import (
 
 // INDEXER.GO IS ONLY USED FOR CANOPY INDEXING RPC - NOT A CRITICAL PIECE OF THE STATE MACHINE
 
-type stateChangeReader interface {
-	StateChangeKeys(version uint64, prefix []byte) (keys [][]byte, available bool, err lib.ErrorI)
-}
-
 // IndexerBlob() retrieves the protobuf blobs for a blockchain indexer
 func (s *StateMachine) IndexerBlobs(height uint64) (b *IndexerBlobs, err lib.ErrorI) {
 	b = &IndexerBlobs{}
@@ -52,11 +48,11 @@ func (s *StateMachine) IndexerBlobsFromStateChanges(height uint64) (b *IndexerBl
 	if height == 2 {
 		return nil, false, nil
 	}
-	reader, ok := s.store.(stateChangeReader)
+	st, ok := s.store.(lib.StoreI)
 	if !ok {
 		return nil, false, nil
 	}
-	accountKeys, available, err := reader.StateChangeKeys(height, AccountPrefix())
+	accountKeys, available, err := st.StateChangeKeys(height, AccountPrefix())
 	if err != nil || !available {
 		return nil, available, err
 	}
@@ -276,6 +272,7 @@ func (s *StateMachine) indexerBlob(height uint64, accountKeys [][]byte, selectiv
 	}, nil
 }
 
+// valuesForStateKeys() returns the byte array for state keys
 func (s *StateMachine) valuesForStateKeys(keys [][]byte, prefix []byte) ([][]byte, lib.ErrorI) {
 	values := make([][]byte, 0, len(keys))
 	seen := make(map[string]struct{}, len(keys))
@@ -541,6 +538,8 @@ func rewardSlashAccountKeys(blockBz []byte) (map[string]struct{}, lib.ErrorI) {
 	return keys, nil
 }
 
+// rewardSlashAccountStateKeys() returns account storage keys referenced by reward/slash events
+// Sparse journal reads use them to include event accounts even when their state is unchanged
 func rewardSlashAccountStateKeys(blockBz []byte) ([][]byte, lib.ErrorI) {
 	addresses, err := rewardSlashAccountKeys(blockBz)
 	if err != nil {
