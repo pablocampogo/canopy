@@ -627,9 +627,11 @@ func (s *Server) IndexerBlobsCached(height uint64) (*fsm.IndexerBlobs, []byte, l
 	// makes account delta construction proportional to block activity instead
 	// of total account count. Heights committed before the journal was enabled
 	// transparently use the full-snapshot fallback below.
-	if journalDelta, available, journalErr := s.controller.FSM.IndexerBlobsFromStateChanges(height); journalErr != nil {
+	journalDelta, available, journalErr := s.controller.FSM.IndexerBlobsFromStateChanges(height)
+	if journalErr != nil {
 		return nil, nil, journalErr
-	} else if available {
+	}
+	if available {
 		deltaBytes, marshalErr := lib.Marshal(journalDelta)
 		if marshalErr != nil {
 			return nil, nil, marshalErr
