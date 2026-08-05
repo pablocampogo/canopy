@@ -266,9 +266,7 @@ func (s *Store) Commit() (root []byte, err lib.ErrorI) {
 	}
 	// collect LSS tombstones before Flush() clears the txn operations
 	lssDeleteKeys := s.collectLssDeleteKeys()
-	// Persist the keys touched by this commit outside consensus state. Indexer
-	// blob queries use this journal to avoid scanning millions of unchanged
-	// accounts at every height.
+	// Persist the keys touched by this commit outside consensus state.
 	if s.config.StoreConfig.StateChangeJournalEnabled {
 		if err = s.recordStateChangeKeys(nextVersion); err != nil {
 			s.Reset()
