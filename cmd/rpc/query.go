@@ -554,12 +554,23 @@ func (s *Server) TransactionsByRecipient(w http.ResponseWriter, r *http.Request,
 	})
 }
 
-// FailedTxs returns a list of failed mempool transactions for the specified address
+// FailedTxs returns a list of failed mempool transactions for the specified address, or for all addresses if none is given
 func (s *Server) FailedTxs(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	// Invoke helper with the HTTP request, response writer and an inline callback
-	s.addrIndexer(w, r, func(_ lib.StoreI, address crypto.AddressI, p lib.PageParams) (any, lib.ErrorI) {
-		return s.controller.GetFailedTxsPage(address.String(), p)
-	})
+	req := new(paginatedAddressRequest)
+	if ok := unmarshal(w, r, req); !ok {
+		return
+	}
+	// an empty address string means 'all addresses' to the failed tx cache
+	address := ""
+	if req.Address != nil {
+		address = crypto.NewAddressFromBytes(req.Address).String()
+	}
+	p, err := s.controller.GetFailedTxsPage(address, req.PageParams)
+	if err != nil {
+		write(w, err, http.StatusBadRequest)
+		return
+	}
+	write(w, p, http.StatusOK)
 }
 
 // Proposals returns the proposals present
