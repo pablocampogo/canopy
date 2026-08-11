@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 	"unsafe"
@@ -326,6 +327,69 @@ func TestAccountsQueryReturnsVestingBreakdowns(t *testing.T) {
 	require.Equal(t, uint64(1), vestedAccount.VestingStartHeight)
 	require.Equal(t, uint64(2), vestedAccount.VestingCliffHeight)
 	require.Equal(t, uint64(6), vestedAccount.VestingEndHeight)
+}
+
+func TestFailedTxsReturnsAllWhenAddressOmitted(t *testing.T) {
+	addrA := crypto.NewAddress(bytes.Repeat([]byte{0x11}, crypto.AddressSize))
+	addrB := crypto.NewAddress(bytes.Repeat([]byte{0x22}, crypto.AddressSize))
+	server := newTestFailedTxServer(t, []*lib.FailedTx{
+		{Hash: "hashA", Address: addrA.String()},
+		{Hash: "hashB", Address: addrB.String()},
+	})
+
+	// no address in the request body means 'return every cached failed tx'
+	req := httptest.NewRequest(http.MethodPost, FailedTxRoutePath, bytes.NewBufferString(`{"pageNumber":1,"perPage":20}`))
+	rec := httptest.NewRecorder()
+
+	server.FailedTxs(rec, req, nil)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got struct {
+		Results []lib.FailedTx `json:"results"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Len(t, got.Results, 2)
+}
+
+func TestFailedTxsFiltersByAddressWhenGiven(t *testing.T) {
+	addrA := crypto.NewAddress(bytes.Repeat([]byte{0x11}, crypto.AddressSize))
+	addrB := crypto.NewAddress(bytes.Repeat([]byte{0x22}, crypto.AddressSize))
+	server := newTestFailedTxServer(t, []*lib.FailedTx{
+		{Hash: "hashA", Address: addrA.String()},
+		{Hash: "hashB", Address: addrB.String()},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, FailedTxRoutePath, bytes.NewBufferString(
+		`{"address":"`+addrA.String()+`","pageNumber":1,"perPage":20}`,
+	))
+	rec := httptest.NewRecorder()
+
+	server.FailedTxs(rec, req, nil)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got struct {
+		Results []lib.FailedTx `json:"results"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Len(t, got.Results, 1)
+	require.Equal(t, "hashA", got.Results[0].Hash)
+}
+
+// newTestFailedTxServer builds a Server backed by a real Mempool whose failed-tx cache is pre-seeded with entries
+func newTestFailedTxServer(t *testing.T, entries []*lib.FailedTx) *Server {
+	t.Helper()
+
+	mempool := &controller.Mempool{}
+	cache := lib.NewFailedTxCache()
+	for _, entry := range entries {
+		cache.Add(entry)
+	}
+	setUnexportedField(t, mempool, "cachedFailedTxs", cache)
+
+	return &Server{
+		controller: &controller.Controller{Mutex: &sync.Mutex{}, Mempool: mempool},
+		logger:     lib.NewDefaultLogger(),
+	}
 }
 
 func newTestIndexerBlobServer(t *testing.T) *Server {
