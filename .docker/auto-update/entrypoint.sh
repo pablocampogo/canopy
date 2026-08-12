@@ -20,9 +20,11 @@ for arg in "$@"; do
   esac
   prev="$arg"
 done
-echo "using data directory $DATA_DIR"
-
 mkdir -p "$DATA_DIR"
+# normalize to an absolute path so relative values (e.g. ./data) don't create a
+# dangling symlink at $BIN_PATH (symlink targets resolve relative to the link)
+DATA_DIR=$(cd "$DATA_DIR" && pwd) || { echo "failed to resolve data dir: $DATA_DIR"; exit 1; }
+echo "using data directory $DATA_DIR"
 
 # Persisting current version
 # Check if it exist
