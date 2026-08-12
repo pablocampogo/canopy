@@ -432,11 +432,17 @@ func (s *Server) TransactionByHash(w http.ResponseWriter, r *http.Request, _ htt
 		return
 	}
 	if tx != nil && tx.GetTxHash() != "" {
-		write(w, tx, http.StatusOK)
+		response := *tx
+		committed := true
+		response.Committed = &committed
+		write(w, &response, http.StatusOK)
 		return
 	}
 	if pendingTx, found := s.controller.GetPendingTxByHash(req.Hash); found {
-		write(w, pendingTx, http.StatusOK)
+		response := *pendingTx
+		committed := false
+		response.Committed = &committed
+		write(w, &response, http.StatusOK)
 		return
 	}
 	write(w, map[string]string{"error": "transaction not found"}, http.StatusNotFound)
