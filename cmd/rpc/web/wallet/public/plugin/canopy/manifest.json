@@ -738,8 +738,8 @@
             "label": "Validator Address",
             "required": true,
             "showIf": "{{ form.isDelegate === false || form.isDelegate === 'false' }}",
-            "value": "",
-            "autoPopulate": false,
+            "value": "{{ ds.validator?.netAddress ?? '' }}",
+            "autoPopulate": "once",
             "placeholder": "tcp://127.0.0.1:xxxx",
             "help": "Put the url of the validator you want to delegate to.",
             "step": "committees"
