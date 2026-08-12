@@ -79,9 +79,9 @@ var newValidatorKeyCmd = &cobra.Command{
 }
 
 var (
-	client, config, l        = &rpc.Client{}, lib.Config{}, lib.LoggerI(nil)
-	DataDir, validatorKey    = "", crypto.PrivateKeyI(nil)
-	rpcURLFlag, adminURLFlag string
+	client, config, l                             = &rpc.Client{}, lib.Config{}, lib.LoggerI(nil)
+	DataDir, validatorKey                         = "", crypto.PrivateKeyI(nil)
+	rpcURLFlag, adminURLFlag, externalAddressFlag string
 )
 
 func init() {
@@ -102,6 +102,7 @@ func registerPersistentFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&DataDir, "data-dir", lib.DefaultDataDirPath(), "custom data directory location")
 	fs.StringVar(&rpcURLFlag, "rpc-url", "", "override the RPC URL from config")
 	fs.StringVar(&adminURLFlag, "admin-url", "", "override the admin RPC URL from config")
+	fs.StringVar(&externalAddressFlag, "external-address", "", "P2P external address")
 }
 
 // ParseGlobalFlags parses the global flags from args, populates the package-level
@@ -305,6 +306,10 @@ func InitializeDataDirectory(dataDirPath string, log lib.LoggerI) (c lib.Config,
 	c, err = lib.NewConfigFromFile(configFilePath)
 	if err != nil {
 		log.Fatal(err.Error())
+	}
+	// if the external address is passed as a flag, it takes precedence over the file config
+	if externalAddressFlag != "" {
+		c.ExternalAddress = externalAddressFlag
 	}
 	// set the data-directory
 	c.DataDirPath = dataDirPath
