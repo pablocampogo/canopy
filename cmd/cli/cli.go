@@ -78,9 +78,9 @@ var newValidatorKeyCmd = &cobra.Command{
 }
 
 var (
-	client, config, l        = &rpc.Client{}, lib.Config{}, lib.LoggerI(nil)
-	DataDir, validatorKey    = "", crypto.PrivateKeyI(nil)
-	rpcURLFlag, adminURLFlag string
+	client, config, l                             = &rpc.Client{}, lib.Config{}, lib.LoggerI(nil)
+	DataDir, validatorKey                         = "", crypto.PrivateKeyI(nil)
+	rpcURLFlag, adminURLFlag, externalAddressFlag string
 )
 
 func init() {
@@ -95,6 +95,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&DataDir, "data-dir", lib.DefaultDataDirPath(), "custom data directory location")
 	rootCmd.PersistentFlags().StringVar(&rpcURLFlag, "rpc-url", "", "override the RPC URL from config")
 	rootCmd.PersistentFlags().StringVar(&adminURLFlag, "admin-url", "", "override the admin RPC URL from config")
+	rootCmd.PersistentFlags().StringVar(&externalAddressFlag, "external-address", "", "P2P external address")
 }
 
 func Execute() {
@@ -272,6 +273,10 @@ func InitializeDataDirectory(dataDirPath string, log lib.LoggerI) (c lib.Config,
 	c, err = lib.NewConfigFromFile(configFilePath)
 	if err != nil {
 		log.Fatal(err.Error())
+	}
+	// if the external address is passed as a flag, it takes precedence over the file config
+	if externalAddressFlag != "" {
+		c.ExternalAddress = externalAddressFlag
 	}
 	// set the data-directory
 	c.DataDirPath = dataDirPath
