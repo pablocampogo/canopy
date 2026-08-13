@@ -41,8 +41,8 @@
       "retired": 0
     },
     "validator": {
-      "unstakingBlocks": 30240,
-      "maxPauseBlocks": 30240,
+      "unstakingBlocks": 2,
+      "maxPauseBlocks": 4380,
       "doubleSignSlashPercentage": 10,
       "nonSignSlashPercentage": 1,
       "maxNonSign": 4,
