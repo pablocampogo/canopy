@@ -3,17 +3,37 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Tag for the release (e.g. v1.0.0)"
+      version:
+        description: "Semantic version for the release (e.g. 1.0.0). The 'v' prefix is added automatically."
         required: true
 
 permissions:
   contents: write
 
 jobs:
+  validate:
+    name: Validate version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.compute.outputs.tag }}
+
+    steps:
+      - name: Validate version and compute tag
+        id: compute
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          SEMVER_REGEX='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+          if [[ ! "$VERSION" =~ $SEMVER_REGEX ]]; then
+            echo "::error::Version '$VERSION' is not a valid semantic version. Expected MAJOR.MINOR.PATCH (e.g. 1.0.0)"
+            exit 1
+          fi
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Version '$VERSION' is valid. Release tag: v${VERSION}"
+
   release:
     name: Build and Release
     runs-on: ubuntu-latest
+    needs: validate
 
     steps:
       - name: Checkout code
@@ -42,7 +62,7 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.event.inputs.tag }}
+          tag_name: ${{ needs.validate.outputs.tag }}
           target_commitish: ${{ github.sha }}
           files: |
             dist/cli-linux-amd64
@@ -58,7 +78,7 @@ jobs:
   docker-main:
     name: Docker - Main
     runs-on: ubuntu-latest
-    needs: release
+    needs: [validate, release]
 
     steps:
       - name: Checkout code
@@ -77,7 +97,7 @@ jobs:
 
       - name: Build and push
         run: |
-          TAG=${{ github.event.inputs.tag }}
+          TAG=${{ needs.validate.outputs.tag }}
           DOCKER_TAG=${TAG//+/-}
           docker build \
             -t canopynetwork/canopy:${DOCKER_TAG} \
@@ -91,7 +111,7 @@ jobs:
   docker-go:
     name: Docker - Go Plugin
     runs-on: ubuntu-latest
-    needs: release
+    needs: [validate, release]
 
     steps:
       - name: Checkout code
@@ -110,7 +130,7 @@ jobs:
 
       - name: Build and push
         run: |
-          TAG=${{ github.event.inputs.tag }}
+          TAG=${{ needs.validate.outputs.tag }}
           DOCKER_TAG=${TAG//+/-}
           docker build \
             -t canopynetwork/canopy:go-${DOCKER_TAG} \
@@ -125,7 +145,7 @@ jobs:
   docker-python:
     name: Docker - Python Plugin
     runs-on: ubuntu-latest
-    needs: release
+    needs: [validate, release]
 
     steps:
       - name: Checkout code
@@ -144,7 +164,7 @@ jobs:
 
       - name: Build and push
         run: |
-          TAG=${{ github.event.inputs.tag }}
+          TAG=${{ needs.validate.outputs.tag }}
           DOCKER_TAG=${TAG//+/-}
           docker build \
             -t canopynetwork/canopy:python-${DOCKER_TAG} \
@@ -159,7 +179,7 @@ jobs:
   docker-typescript:
     name: Docker - TypeScript Plugin
     runs-on: ubuntu-latest
-    needs: release
+    needs: [validate, release]
 
     steps:
       - name: Checkout code
@@ -178,7 +198,7 @@ jobs:
 
       - name: Build and push
         run: |
-          TAG=${{ github.event.inputs.tag }}
+          TAG=${{ needs.validate.outputs.tag }}
           DOCKER_TAG=${TAG//+/-}
           docker build \
             -t canopynetwork/canopy:typescript-${DOCKER_TAG} \
@@ -193,7 +213,7 @@ jobs:
   docker-kotlin:
     name: Docker - Kotlin Plugin
     runs-on: ubuntu-latest
-    needs: release
+    needs: [validate, release]
 
     steps:
       - name: Checkout code
@@ -212,7 +232,7 @@ jobs:
 
       - name: Build and push
         run: |
-          TAG=${{ github.event.inputs.tag }}
+          TAG=${{ needs.validate.outputs.tag }}
           DOCKER_TAG=${TAG//+/-}
           docker build \
             -t canopynetwork/canopy:kotlin-${DOCKER_TAG} \
@@ -227,7 +247,7 @@ jobs:
   docker-csharp:
     name: Docker - C# Plugin
     runs-on: ubuntu-latest
-    needs: release
+    needs: [validate, release]
 
     steps:
       - name: Checkout code
@@ -246,7 +266,7 @@ jobs:
 
       - name: Build and push
         run: |
-          TAG=${{ github.event.inputs.tag }}
+          TAG=${{ needs.validate.outputs.tag }}
           DOCKER_TAG=${TAG//+/-}
           docker build \
             -t canopynetwork/canopy:csharp-${DOCKER_TAG} \
