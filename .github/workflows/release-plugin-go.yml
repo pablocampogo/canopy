@@ -23,13 +23,22 @@ jobs:
         env:
           VERSION: ${{ github.event.inputs.version }}
         run: |
+          PREFIX="plugin-go-v"
+          # Backwards compatibility: also accept the fully-prefixed tag form
+          # (e.g. plugin-go-v1.0.4) in addition to the bare version (1.0.4).
+          # Old forks and their release automation still pass the full tag, so
+          # strip the prefix here when it's present. This is intentionally NOT
+          # listed in the workflow_dispatch input description above so the manual
+          # flow steers users toward entering just the version.
+          # DO NOT REMOVE: deleting this breaks releases triggered from existing forks.
+          VERSION="${VERSION#"$PREFIX"}"
           SEMVER_REGEX='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
           if [[ ! "$VERSION" =~ $SEMVER_REGEX ]]; then
             echo "::error::Version '$VERSION' is not a valid semantic version. Expected MAJOR.MINOR.PATCH (e.g. 1.0.0)"
             exit 1
           fi
-          echo "tag=plugin-go-v${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Version '$VERSION' is valid. Release tag: plugin-go-v${VERSION}"
+          echo "tag=${PREFIX}${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Version '$VERSION' is valid. Release tag: ${PREFIX}${VERSION}"
 
   release:
     name: Build and Release Go Plugin
