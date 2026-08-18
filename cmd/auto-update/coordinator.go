@@ -286,7 +286,7 @@ func (c *Coordinator) UpdateLoop(cancelSignal chan os.Signal) error {
 			return err
 		// periodic check for updates
 		case <-timer.C:
-			if !c.updater.Enabled {
+			if !c.config.Canopy.AutoUpdate {
 				continue
 			}
 			// wrap it on a goroutine so it doesn't block the main loop

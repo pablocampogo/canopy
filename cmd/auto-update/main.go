@@ -111,19 +111,19 @@ func main() {
 		logger.Infof("auto-update enabled (updater version: %s, canopy version: %s)",
 			rpc.SoftwareVersion, binaryVersion)
 	} else {
-		logger.Infof("auto-update disabled (canopy version: %s)", binPath)
+		logger.Infof("auto-update disabled (canopy version: %s)", rpc.SoftwareVersion)
 	}
 	// handle external shutdown signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	// setup the dependencies
-	updater := NewReleaseManager(configs.Updater, binaryVersion, autoUpdaterEnabled)
+	updater := NewReleaseManager(configs.Updater, binaryVersion)
 	snapshot := NewSnapshotManager(configs.Snapshot)
 	// setup plugin updater and config if configured
 	var pluginUpdater *ReleaseManager
 	var pluginConfig *PluginReleaseConfig
 	if configs.PluginUpdater != nil {
-		pluginUpdater = NewReleaseManager(configs.PluginUpdater, "v0.0.0", true)
+		pluginUpdater = NewReleaseManager(configs.PluginUpdater, "v0.0.0")
 		pluginConfig = configs.PluginUpdater.PluginConfig
 		logger.Infof("plugin auto-update enabled from %s/%s",
 			configs.PluginUpdater.RepoOwner,
@@ -165,7 +165,6 @@ func getConfigs() (*Configs, lib.LoggerI) {
 		Structured: canopyConfig.Structured,
 		JSON:       canopyConfig.JSON,
 	}, canopyConfig.DataDirPath)
-
 	// resolve to an absolute path so of the binary
 	binPath := envOrDefault("BIN_PATH", defaultBinPath)
 	if abs, err := filepath.Abs(binPath); err == nil {
@@ -278,9 +277,7 @@ func getSoftwareVersion(autoUpdate bool, binPath string) string {
 	if !autoUpdate {
 		return rpc.SoftwareVersion
 	}
-	// forward the global flags so 'version' targets the same data directory
-	versionArgs := append([]string{"version"}, cli.GlobalFlagArgs()...)
-	out, err := exec.Command(binPath, versionArgs...).Output()
+	out, err := exec.Command(binPath, "version").Output()
 	if err != nil {
 		panic(fmt.Sprintf("failed to get software version from binary: %v", err))
 	}
