@@ -26,6 +26,7 @@ const (
 	defaultRepoName     = "canopy"
 	defaultRepoOwner    = "canopy-network"
 	defaultBinPath      = "./cli"
+	defaultNewBinName   = "canopy_updated" // name of the downloaded binary, kept on the data directory
 	defaultCheckPeriod  = time.Minute * 30 // default check period for updates
 	defaultGracePeriod  = time.Second * 2  // default grace period for graceful shutdown
 	defaultMaxDelayTime = 30               // default max delay time for staggered updates (minutes)
@@ -99,22 +100,24 @@ func main() {
 		return
 	}
 	autoUpdaterEnabled := configs.Coordinator.Canopy.AutoUpdate
-	binPath := configs.Coordinator.BinPath
+	// run a previously downloaded update if there is one, the shipped binary otherwise
+	binPath := effectiveBinPath(configs.Coordinator.UpdatedBinPath, configs.Coordinator.BinPath)
 	// ensure the binary exists before proceeding
-	if !isExecutable(binPath) {
+	if binPath == "" {
 		logger.Fatalf("canopy binary not found or not executable: %s", binPath)
 	}
+	binaryVersion := getSoftwareVersion(autoUpdaterEnabled, binPath)
 	if autoUpdaterEnabled {
-		logger.Infof("auto-update enabled, starting coordinator on version %s", rpc.SoftwareVersion)
+		logger.Infof("auto-update enabled (updater version: %s, canopy version: %s)",
+			rpc.SoftwareVersion, binaryVersion)
 	} else {
-		logger.Infof("auto-update disabled, starting binary: %s", binPath)
+		logger.Infof("auto-update disabled (canopy version: %s)", binPath)
 	}
 	// handle external shutdown signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	// setup the dependencies
-	updater := NewReleaseManager(configs.Updater,
-		getSoftwareVersion(autoUpdaterEnabled, binPath), autoUpdaterEnabled)
+	updater := NewReleaseManager(configs.Updater, binaryVersion, autoUpdaterEnabled)
 	snapshot := NewSnapshotManager(configs.Snapshot)
 	// setup plugin updater and config if configured
 	var pluginUpdater *ReleaseManager
@@ -163,7 +166,13 @@ func getConfigs() (*Configs, lib.LoggerI) {
 		JSON:       canopyConfig.JSON,
 	}, canopyConfig.DataDirPath)
 
+	// resolve to an absolute path so of the binary
 	binPath := envOrDefault("BIN_PATH", defaultBinPath)
+	if abs, err := filepath.Abs(binPath); err == nil {
+		binPath = abs
+	}
+	// updates are downloaded on the data directory
+	updatedBinPath := filepath.Join(canopyConfig.DataDirPath, defaultNewBinName)
 	githubToken := envOrDefault("CANOPY_GITHUB_API_TOKEN", "")
 
 	// core auto-update repo: config.json or defaults
@@ -181,7 +190,7 @@ func getConfigs() (*Configs, lib.LoggerI) {
 		RepoName:       repoName,
 		RepoOwner:      repoOwner,
 		GithubApiToken: githubToken,
-		BinPath:        binPath,
+		BinPath:        updatedBinPath,
 		SnapshotKey:    snapshotMetadataKey,
 	}
 	snapshot := &SnapshotConfig{
@@ -189,11 +198,12 @@ func getConfigs() (*Configs, lib.LoggerI) {
 		Name: snapshotFileName,
 	}
 	coordinator := &CoordinatorConfig{
-		Canopy:       canopyConfig,
-		BinPath:      binPath,
-		MaxDelayTime: envOrDefaultInt("AUTO_UPDATE_MAX_DELAY_MINUTES", defaultMaxDelayTime),
-		CheckPeriod:  envOrDefaultDuration("AUTO_UPDATE_CHECK_PERIOD", defaultCheckPeriod),
-		GracePeriod:  defaultGracePeriod,
+		Canopy:         canopyConfig,
+		BinPath:        binPath,
+		UpdatedBinPath: updatedBinPath,
+		MaxDelayTime:   envOrDefaultInt("AUTO_UPDATE_MAX_DELAY_MINUTES", defaultMaxDelayTime),
+		CheckPeriod:    envOrDefaultDuration("AUTO_UPDATE_CHECK_PERIOD", defaultCheckPeriod),
+		GracePeriod:    defaultGracePeriod,
 	}
 
 	// setup plugin updater config if plugin auto-update is enabled
@@ -252,6 +262,16 @@ func isExecutable(path string) bool {
 	}
 	// check for any execute bit (owner, group, or other)
 	return info.Mode()&0111 != 0
+}
+
+// effectiveBinPath returns the first valid binary to run, or an empty string if neither is valid
+func effectiveBinPath(paths ...string) string {
+	for _, path := range paths {
+		if isExecutable(path) {
+			return path
+		}
+	}
+	return ""
 }
 
 func getSoftwareVersion(autoUpdate bool, binPath string) string {
