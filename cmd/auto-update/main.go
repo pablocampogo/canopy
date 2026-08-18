@@ -165,7 +165,7 @@ func getConfigs() (*Configs, lib.LoggerI) {
 		Structured: canopyConfig.Structured,
 		JSON:       canopyConfig.JSON,
 	}, canopyConfig.DataDirPath)
-	// resolve to an absolute path so of the binary
+	// resolve to an absolute path of the binary
 	binPath := envOrDefault("BIN_PATH", defaultBinPath)
 	if abs, err := filepath.Abs(binPath); err == nil {
 		binPath = abs
