@@ -3,12 +3,17 @@
 # Usage: ./pluginctl.sh {start|stop|status|restart}
 # Configuration variables for paths and files
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NODE_SCRIPT="$SCRIPT_DIR/dist/main.js"
+# Plugin code (dist + node_modules) and tarball live under the canopy data
+# directory so they persist across restarts. CANOPY_PLUGIN_HOME is exported by
+# canopy; fall back to the default data dir location when running standalone.
+PLUGIN_HOME="${CANOPY_PLUGIN_HOME:-${CANOPY_DATA_DIR:-$HOME/.canopy}/plugin/$(basename "$SCRIPT_DIR")}"
+mkdir -p "$PLUGIN_HOME"
+NODE_SCRIPT="$PLUGIN_HOME/dist/main.js"
 NODE_CMD="node"
 PID_FILE="/tmp/plugin/typescript-plugin.pid"
 LOG_FILE="/tmp/plugin/typescript-plugin.log"
 PLUGIN_DIR="/tmp/plugin"
-TARBALL="$SCRIPT_DIR/typescript-plugin.tar.gz"
+TARBALL="$PLUGIN_HOME/typescript-plugin.tar.gz"
 # Timeout in seconds for graceful shutdown
 STOP_TIMEOUT=10
 
@@ -22,7 +27,7 @@ extract_if_needed() {
     # Check for tarball
     if [ -f "$TARBALL" ]; then
         echo "Extracting $TARBALL..."
-        tar -xzf "$TARBALL" -C "$SCRIPT_DIR"
+        tar -xzf "$TARBALL" -C "$PLUGIN_HOME"
         if [ $? -eq 0 ] && [ -f "$NODE_SCRIPT" ]; then
             echo "Extraction complete"
             return 0

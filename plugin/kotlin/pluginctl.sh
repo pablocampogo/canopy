@@ -3,8 +3,13 @@
 # Usage: ./pluginctl.sh {start|stop|status|restart}
 # Configuration variables for paths and files
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-JAR_PATH="$SCRIPT_DIR/build/libs/canopy-plugin-kotlin-1.0.0-all.jar"
-TARBALL="$SCRIPT_DIR/kotlin-plugin.tar.gz"
+# Plugin artifacts (jar + tarball) live under the canopy data directory so they
+# persist across restarts. CANOPY_PLUGIN_HOME is exported by canopy; fall back
+# to the default data dir location when running this script standalone.
+PLUGIN_HOME="${CANOPY_PLUGIN_HOME:-${CANOPY_DATA_DIR:-$HOME/.canopy}/plugin/$(basename "$SCRIPT_DIR")}"
+mkdir -p "$PLUGIN_HOME"
+JAR_PATH="$PLUGIN_HOME/build/libs/canopy-plugin-kotlin-1.0.0-all.jar"
+TARBALL="$PLUGIN_HOME/kotlin-plugin.tar.gz"
 PID_FILE="/tmp/plugin/kotlin-plugin.pid"
 LOG_FILE="/tmp/plugin/kotlin-plugin.log"
 PLUGIN_DIR="/tmp/plugin"
@@ -21,11 +26,11 @@ extract_if_needed() {
     # Check for tarball
     if [ -f "$TARBALL" ]; then
         echo "Extracting $TARBALL..."
-        mkdir -p "$SCRIPT_DIR/build/libs"
-        tar -xzf "$TARBALL" -C "$SCRIPT_DIR/build/libs"
+        mkdir -p "$PLUGIN_HOME/build/libs"
+        tar -xzf "$TARBALL" -C "$PLUGIN_HOME/build/libs"
         # Rename if needed (tarball contains kotlin-plugin.jar)
-        if [ -f "$SCRIPT_DIR/build/libs/kotlin-plugin.jar" ] && [ ! -f "$JAR_PATH" ]; then
-            mv "$SCRIPT_DIR/build/libs/kotlin-plugin.jar" "$JAR_PATH"
+        if [ -f "$PLUGIN_HOME/build/libs/kotlin-plugin.jar" ] && [ ! -f "$JAR_PATH" ]; then
+            mv "$PLUGIN_HOME/build/libs/kotlin-plugin.jar" "$JAR_PATH"
         fi
         if [ $? -eq 0 ] && [ -f "$JAR_PATH" ]; then
             echo "Extraction complete"

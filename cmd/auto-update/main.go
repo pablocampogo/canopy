@@ -227,7 +227,7 @@ func getConfigs() (*Configs, lib.LoggerI) {
 				Type:           ReleaseTypePlugin,
 				RepoOwner:      repoOwner,
 				RepoName:       repoName,
-				PluginDir:      fmt.Sprintf("plugin/%s", canopyConfig.Plugin),
+				PluginDir:      filepath.Join(canopyConfig.DataDirPath, "plugin", canopyConfig.Plugin),
 				PluginConfig:   pluginReleaseCfg,
 				GithubApiToken: githubToken,
 			}

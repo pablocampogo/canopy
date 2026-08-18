@@ -3,7 +3,12 @@
 # Usage: ./pluginctl.sh {start|stop|status|restart}
 # Configuration variables for paths and files
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BINARY_PATH="$SCRIPT_DIR/go-plugin"
+# Plugin artifacts (binary + tarball) live under the canopy data directory so
+# they persist across restarts. CANOPY_PLUGIN_HOME is exported by canopy; fall
+# back to the default data dir location when running this script standalone.
+PLUGIN_HOME="${CANOPY_PLUGIN_HOME:-${CANOPY_DATA_DIR:-$HOME/.canopy}/plugin/$(basename "$SCRIPT_DIR")}"
+mkdir -p "$PLUGIN_HOME"
+BINARY_PATH="$PLUGIN_HOME/go-plugin"
 PID_FILE="/tmp/plugin/go-plugin.pid"
 LOG_FILE="/tmp/plugin/go-plugin.log"
 PLUGIN_DIR="/tmp/plugin"
@@ -35,11 +40,11 @@ extract_if_needed() {
     
     # Check for architecture-specific tarball
     local arch=$(get_arch)
-    local tarball="$SCRIPT_DIR/go-plugin-linux-${arch}.tar.gz"
+    local tarball="$PLUGIN_HOME/go-plugin-linux-${arch}.tar.gz"
     
     if [ -f "$tarball" ]; then
         echo "Extracting $tarball..."
-        tar -xzf "$tarball" -C "$SCRIPT_DIR"
+        tar -xzf "$tarball" -C "$PLUGIN_HOME"
         if [ $? -eq 0 ] && [ -f "$BINARY_PATH" ]; then
             chmod +x "$BINARY_PATH"
             echo "Extraction complete"

@@ -104,6 +104,15 @@ an update, the coordinator runs `<data-dir>/canopy_updated` when it exists and i
 executable, and falls back to `BIN_PATH` when it does not. Removing that file rolls the
 node back to the version shipped with the image.
 
+### Plugin persistence
+
+For the same reason, plugin artifacts are stored under the data directory rather than in
+the image. The coordinator downloads (and `pluginctl.sh` extracts and runs) the plugin
+from `<data-dir>/plugin/<lang>`, which is exported to the launcher as `CANOPY_PLUGIN_HOME`.
+Only `pluginctl.sh` ships in the image; the downloaded binary/tarball live on the
+persistent volume, so a restart reuses the already-downloaded plugin instead of
+re-fetching it from GitHub. Removing that directory forces a fresh download on next start.
+
 ## Dependencies
 
 - Go standard library
