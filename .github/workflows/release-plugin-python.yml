@@ -3,7 +3,7 @@ name: Release Python Plugin
 on:
   workflow_dispatch:
     inputs:
-      version:
+      tag:
         description: "Semantic version for the plugin release (e.g. 1.0.0). The 'plugin-python-v' prefix is added automatically."
         required: true
 
@@ -21,7 +21,7 @@ jobs:
       - name: Validate version and compute tag
         id: compute
         env:
-          VERSION: ${{ github.event.inputs.version }}
+          VERSION: ${{ github.event.inputs.tag }}
         run: |
           PREFIX="plugin-python-v"
           # Backwards compatibility: also accept the fully-prefixed tag form

@@ -3,7 +3,7 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      version:
+      tag:
         description: "Semantic version for the release (e.g. 1.0.0). The 'v' prefix is added automatically."
         required: true
 
@@ -21,7 +21,7 @@ jobs:
       - name: Validate version and compute tag
         id: compute
         env:
-          VERSION: ${{ github.event.inputs.version }}
+          VERSION: ${{ github.event.inputs.tag }}
         run: |
           SEMVER_REGEX='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
           if [[ ! "$VERSION" =~ $SEMVER_REGEX ]]; then
