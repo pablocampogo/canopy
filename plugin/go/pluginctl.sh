@@ -3,12 +3,26 @@
 # Usage: ./pluginctl.sh {start|stop|status|restart}
 # Configuration variables for paths and files
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Plugin artifacts (binary + tarball) live under the canopy data directory so
-# they persist across restarts. CANOPY_PLUGIN_HOME is exported by canopy; fall
-# back to the default data dir location when running this script standalone.
+# Downloaded plugin updates are persisted under the canopy data directory so
+# they survive restarts. CANOPY_PLUGIN_HOME is exported by canopy; fall back to
+# the default data dir location when running this script standalone.
 PLUGIN_HOME="${CANOPY_PLUGIN_HOME:-${CANOPY_DATA_DIR:-$HOME/.canopy}/plugin/$(basename "$SCRIPT_DIR")}"
 mkdir -p "$PLUGIN_HOME"
-BINARY_PATH="$PLUGIN_HOME/go-plugin"
+# Resolve where the artifact lives: prefer the data dir (a downloaded/extracted
+# update, or a tarball to extract), else the artifact baked next to this script
+# in the image (plain plugin images ship it there; auto-update images download
+# it). This mirrors the CLI's "prefer updated, else shipped" resolution. The
+# baked artifact is never copied into the data dir: the auto-updater treats a
+# present data-dir artifact as "already downloaded", so seeding it there would
+# suppress future updates (stale-version bug).
+if [ -x "$PLUGIN_HOME/go-plugin" ] || ls "$PLUGIN_HOME"/go-plugin-linux-*.tar.gz >/dev/null 2>&1; then
+    RUN_HOME="$PLUGIN_HOME"
+elif [ -x "$SCRIPT_DIR/go-plugin" ]; then
+    RUN_HOME="$SCRIPT_DIR"
+else
+    RUN_HOME="$PLUGIN_HOME"
+fi
+BINARY_PATH="$RUN_HOME/go-plugin"
 PID_FILE="/tmp/plugin/go-plugin.pid"
 LOG_FILE="/tmp/plugin/go-plugin.log"
 PLUGIN_DIR="/tmp/plugin"
@@ -40,11 +54,11 @@ extract_if_needed() {
     
     # Check for architecture-specific tarball
     local arch=$(get_arch)
-    local tarball="$PLUGIN_HOME/go-plugin-linux-${arch}.tar.gz"
+    local tarball="$RUN_HOME/go-plugin-linux-${arch}.tar.gz"
     
     if [ -f "$tarball" ]; then
         echo "Extracting $tarball..."
-        tar -xzf "$tarball" -C "$PLUGIN_HOME"
+        tar -xzf "$tarball" -C "$RUN_HOME"
         if [ $? -eq 0 ] && [ -f "$BINARY_PATH" ]; then
             chmod +x "$BINARY_PATH"
             echo "Extraction complete"

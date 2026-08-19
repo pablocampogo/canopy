@@ -3,13 +3,27 @@
 # Usage: ./pluginctl.sh {start|stop|status|restart}
 # Configuration variables for paths and files
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Plugin artifacts (jar + tarball) live under the canopy data directory so they
-# persist across restarts. CANOPY_PLUGIN_HOME is exported by canopy; fall back
-# to the default data dir location when running this script standalone.
+# Downloaded plugin updates (jar + tarball) are persisted under the canopy data
+# directory so they survive restarts. CANOPY_PLUGIN_HOME is exported by canopy;
+# fall back to the default data dir location when running this script standalone.
 PLUGIN_HOME="${CANOPY_PLUGIN_HOME:-${CANOPY_DATA_DIR:-$HOME/.canopy}/plugin/$(basename "$SCRIPT_DIR")}"
 mkdir -p "$PLUGIN_HOME"
-JAR_PATH="$PLUGIN_HOME/build/libs/canopy-plugin-kotlin-1.0.0-all.jar"
-TARBALL="$PLUGIN_HOME/kotlin-plugin.tar.gz"
+# Resolve where the artifact lives: prefer the data dir (a downloaded/extracted
+# update, or a tarball to extract), else the jar baked next to this script in
+# the image (plain plugin images ship it there; auto-update images download it).
+# This mirrors the CLI's "prefer updated, else shipped" resolution. The baked
+# jar is never copied into the data dir: the auto-updater treats a present
+# data-dir artifact as "already downloaded", so seeding it there would suppress
+# future updates (stale-version bug).
+if [ -f "$PLUGIN_HOME/build/libs/canopy-plugin-kotlin-1.0.0-all.jar" ] || [ -f "$PLUGIN_HOME/kotlin-plugin.tar.gz" ]; then
+    RUN_HOME="$PLUGIN_HOME"
+elif [ -f "$SCRIPT_DIR/build/libs/canopy-plugin-kotlin-1.0.0-all.jar" ]; then
+    RUN_HOME="$SCRIPT_DIR"
+else
+    RUN_HOME="$PLUGIN_HOME"
+fi
+JAR_PATH="$RUN_HOME/build/libs/canopy-plugin-kotlin-1.0.0-all.jar"
+TARBALL="$RUN_HOME/kotlin-plugin.tar.gz"
 PID_FILE="/tmp/plugin/kotlin-plugin.pid"
 LOG_FILE="/tmp/plugin/kotlin-plugin.log"
 PLUGIN_DIR="/tmp/plugin"
@@ -26,11 +40,11 @@ extract_if_needed() {
     # Check for tarball
     if [ -f "$TARBALL" ]; then
         echo "Extracting $TARBALL..."
-        mkdir -p "$PLUGIN_HOME/build/libs"
-        tar -xzf "$TARBALL" -C "$PLUGIN_HOME/build/libs"
+        mkdir -p "$RUN_HOME/build/libs"
+        tar -xzf "$TARBALL" -C "$RUN_HOME/build/libs"
         # Rename if needed (tarball contains kotlin-plugin.jar)
-        if [ -f "$PLUGIN_HOME/build/libs/kotlin-plugin.jar" ] && [ ! -f "$JAR_PATH" ]; then
-            mv "$PLUGIN_HOME/build/libs/kotlin-plugin.jar" "$JAR_PATH"
+        if [ -f "$RUN_HOME/build/libs/kotlin-plugin.jar" ] && [ ! -f "$JAR_PATH" ]; then
+            mv "$RUN_HOME/build/libs/kotlin-plugin.jar" "$JAR_PATH"
         fi
         if [ $? -eq 0 ] && [ -f "$JAR_PATH" ]; then
             echo "Extraction complete"

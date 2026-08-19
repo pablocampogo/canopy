@@ -3,17 +3,31 @@
 # Usage: ./pluginctl.sh {start|stop|status|restart}
 # Configuration variables for paths and files
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Plugin code (dist + node_modules) and tarball live under the canopy data
-# directory so they persist across restarts. CANOPY_PLUGIN_HOME is exported by
-# canopy; fall back to the default data dir location when running standalone.
+# Downloaded plugin updates (dist + node_modules and tarball) are persisted
+# under the canopy data directory so they survive restarts. CANOPY_PLUGIN_HOME
+# is exported by canopy; fall back to the default data dir location standalone.
 PLUGIN_HOME="${CANOPY_PLUGIN_HOME:-${CANOPY_DATA_DIR:-$HOME/.canopy}/plugin/$(basename "$SCRIPT_DIR")}"
 mkdir -p "$PLUGIN_HOME"
-NODE_SCRIPT="$PLUGIN_HOME/dist/main.js"
+# Resolve where the code lives: prefer the data dir (a downloaded/extracted
+# update, or a tarball to extract), else the code baked next to this script in
+# the image (plain plugin images ship it there; auto-update images download it).
+# This mirrors the CLI's "prefer updated, else shipped" resolution. The baked
+# code is never copied into the data dir: the auto-updater treats a present
+# data-dir artifact as "already downloaded", so seeding it there would suppress
+# future updates (stale-version bug).
+if [ -f "$PLUGIN_HOME/dist/main.js" ] || [ -f "$PLUGIN_HOME/typescript-plugin.tar.gz" ]; then
+    RUN_HOME="$PLUGIN_HOME"
+elif [ -f "$SCRIPT_DIR/dist/main.js" ]; then
+    RUN_HOME="$SCRIPT_DIR"
+else
+    RUN_HOME="$PLUGIN_HOME"
+fi
+NODE_SCRIPT="$RUN_HOME/dist/main.js"
 NODE_CMD="node"
 PID_FILE="/tmp/plugin/typescript-plugin.pid"
 LOG_FILE="/tmp/plugin/typescript-plugin.log"
 PLUGIN_DIR="/tmp/plugin"
-TARBALL="$PLUGIN_HOME/typescript-plugin.tar.gz"
+TARBALL="$RUN_HOME/typescript-plugin.tar.gz"
 # Timeout in seconds for graceful shutdown
 STOP_TIMEOUT=10
 
@@ -27,7 +41,7 @@ extract_if_needed() {
     # Check for tarball
     if [ -f "$TARBALL" ]; then
         echo "Extracting $TARBALL..."
-        tar -xzf "$TARBALL" -C "$PLUGIN_HOME"
+        tar -xzf "$TARBALL" -C "$RUN_HOME"
         if [ $? -eq 0 ] && [ -f "$NODE_SCRIPT" ]; then
             echo "Extraction complete"
             return 0
