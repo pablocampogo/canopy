@@ -3,18 +3,10 @@
 # Usage: ./pluginctl.sh {start|stop|status|restart}
 # Configuration variables for paths and files
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Downloaded plugin updates (dist + node_modules and tarball) are persisted
-# under the canopy data directory so they survive restarts. CANOPY_PLUGIN_HOME
-# is exported by canopy; fall back to the default data dir location standalone.
+# Persistent plugin home under the data dir (set by canopy, else default location).
 PLUGIN_HOME="${CANOPY_PLUGIN_HOME:-${CANOPY_DATA_DIR:-$HOME/.canopy}/plugin/$(basename "$SCRIPT_DIR")}"
 mkdir -p "$PLUGIN_HOME"
-# Resolve where the code lives: prefer the data dir (a downloaded/extracted
-# update, or a tarball to extract), else the code baked next to this script in
-# the image (plain plugin images ship it there; auto-update images download it).
-# This mirrors the CLI's "prefer updated, else shipped" resolution. The baked
-# code is never copied into the data dir: the auto-updater treats a present
-# data-dir artifact as "already downloaded", so seeding it there would suppress
-# future updates (stale-version bug).
+# Prefer a downloaded update in the data dir, else the code baked in the image.
 if [ -f "$PLUGIN_HOME/dist/main.js" ] || [ -f "$PLUGIN_HOME/typescript-plugin.tar.gz" ]; then
     RUN_HOME="$PLUGIN_HOME"
 elif [ -f "$SCRIPT_DIR/dist/main.js" ]; then

@@ -3,18 +3,10 @@
 # Usage: ./pluginctl.sh {start|stop|status|restart}
 # Configuration variables for paths and files
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Downloaded plugin updates (source, venv and tarball) are persisted under the
-# canopy data directory so they survive restarts. CANOPY_PLUGIN_HOME is exported
-# by canopy; fall back to the default data dir location when running standalone.
+# Persistent plugin home under the data dir (set by canopy, else default location).
 PLUGIN_HOME="${CANOPY_PLUGIN_HOME:-${CANOPY_DATA_DIR:-$HOME/.canopy}/plugin/$(basename "$SCRIPT_DIR")}"
 mkdir -p "$PLUGIN_HOME"
-# Resolve where the source lives: prefer the data dir (a downloaded/extracted
-# update, or a tarball to extract), else the source baked next to this script in
-# the image (plain plugin images ship it there; auto-update images download it).
-# This mirrors the CLI's "prefer updated, else shipped" resolution. The baked
-# source is never copied into the data dir: the auto-updater treats a present
-# data-dir artifact as "already downloaded", so seeding it there would suppress
-# future updates (stale-version bug).
+# Prefer a downloaded update in the data dir, else the source baked in the image.
 if [ -f "$PLUGIN_HOME/main.py" ] || [ -f "$PLUGIN_HOME/python-plugin.tar.gz" ]; then
     RUN_HOME="$PLUGIN_HOME"
 elif [ -f "$SCRIPT_DIR/main.py" ]; then
