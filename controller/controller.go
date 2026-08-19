@@ -279,9 +279,8 @@ func (c *Controller) runPluginCtl(plugin, action string) ([]byte, lib.ErrorI) {
 	// create the command using the requested action
 	cmd := exec.Command(cmdPath, action)
 	// point the launcher at the persistent plugin home under the data dir so
-	// artifacts survive restarts (must match the coordinator's PluginDir)
-	pluginHome := filepath.Join(c.Config.DataDirPath, "plugin", plugin)
-	cmd.Env = append(os.Environ(), "CANOPY_PLUGIN_HOME="+pluginHome)
+	// downloaded artifacts survive restarts
+	cmd.Env = append(os.Environ(), "CANOPY_PLUGIN_HOME="+c.Config.PluginHome(plugin))
 	// execute the command and capture output
 	output, err := cmd.CombinedOutput()
 	if err != nil {
