@@ -18,16 +18,23 @@ jobs:
       tag: ${{ steps.compute.outputs.tag }}
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
       - name: Validate version and compute tag
         id: compute
         env:
           VERSION: ${{ github.event.inputs.tag }}
         run: |
-          SEMVER_REGEX='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
-          if [[ ! "$VERSION" =~ $SEMVER_REGEX ]]; then
-            echo "::error::Version '$VERSION' is not a valid semantic version. Expected MAJOR.MINOR.PATCH (e.g. 1.0.0)"
-            exit 1
-          fi
+          # Tolerate a leading "v" (e.g. v1.0.0) so the tag isn't doubled into "vv1.0.0".
+          VERSION="${VERSION#v}"
+          # Validate via the shared script (same semver check as the auto-updater).
+          go run ./cmd/scripts/semver "$VERSION"
           echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Version '$VERSION' is valid. Release tag: v${VERSION}"
 
