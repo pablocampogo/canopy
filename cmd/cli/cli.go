@@ -51,6 +51,11 @@ var rootCmd = &cobra.Command{
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print the version number",
+	// version is self-contained: skip data-dir initialization so it never
+	// creates files or prompts for a password (e.g. when run non-interactively)
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		return nil
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println(rpc.SoftwareVersion)
 	},
