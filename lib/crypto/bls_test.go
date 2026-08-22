@@ -188,3 +188,20 @@ func TestAccountAuthMultiBLSConstructorsRequirePositiveThreshold(t *testing.T) {
 	_, err = NewAccountAuthMultiBLSFromPublicKey(consensusStyleKey.(*BLS12381MultiPublicKey).Bytes())
 	require.ErrorIs(t, err, errAccountAuthThreshold)
 }
+
+func TestBLSRejectsPointAtInfinity(t *testing.T) {
+	infinity, err := newBLSSuite().G1().Point().Null().MarshalBinary()
+	require.NoError(t, err)
+
+	_, err = BytesToBLS12381Public(infinity)
+	require.Error(t, err)
+
+	encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(&MultiPublicKey{
+		PublicKeys: [][]byte{infinity},
+		Bitmap:     []byte{1},
+		Threshold:  1,
+	})
+	require.NoError(t, err)
+	_, err = NewMultiBLSFromPublicKey(encoded)
+	require.Error(t, err)
+}

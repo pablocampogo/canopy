@@ -230,6 +230,9 @@ func (s *StateMachine) CheckSignature(tx *lib.Transaction, authorizedSigners [][
 	if e != nil {
 		return nil, ErrInvalidPublicKey(e)
 	}
+	if multiKey, ok := publicKey.(*crypto.BLS12381MultiPublicKey); ok && multiKey.Threshold() == 0 {
+		return nil, ErrInvalidSignature()
+	}
 	if !bytes.Equal(tx.Signature.PublicKey, publicKey.Bytes()) {
 		return nil, ErrInvalidSignature()
 	}

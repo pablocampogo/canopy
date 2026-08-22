@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"math"
 	"math/big"
@@ -617,6 +618,30 @@ func TestCheckSignatureRejectsNonCanonicalPublicKey(t *testing.T) {
 		Signature: key.Sign(signBytes),
 	}
 	_, errI = (&StateMachine{}).CheckSignature(tx, [][]byte{key.PublicKey().Address().Bytes()}, nil)
+	require.ErrorContains(t, errI, "invalid signature")
+}
+
+func TestCheckSignatureRejectsThresholdZeroMultisig(t *testing.T) {
+	key, err := crypto.NewBLS12381PrivateKey()
+	require.NoError(t, err)
+	encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(&crypto.MultiPublicKey{
+		PublicKeys: [][]byte{key.PublicKey().Bytes()},
+		Bitmap:     []byte{0},
+	})
+	require.NoError(t, err)
+	publicKey, err := crypto.NewMultiBLSFromPublicKey(encoded)
+	require.NoError(t, err)
+	tx := &lib.Transaction{Time: 1}
+	signBytes, errI := tx.GetSignBytes()
+	require.NoError(t, errI)
+	identitySignature := make([]byte, crypto.BLS12381SignatureSize)
+	identitySignature[0] = 0xc0
+	require.True(t, publicKey.VerifyBytes(signBytes, identitySignature))
+	tx.Signature = &lib.Signature{
+		PublicKey: encoded,
+		Signature: identitySignature,
+	}
+	_, errI = (&StateMachine{}).CheckSignature(tx, [][]byte{publicKey.Address().Bytes()}, nil)
 	require.ErrorContains(t, errI, "invalid signature")
 }
 

@@ -178,6 +178,9 @@ func BytesToBLS12381Point(bz []byte) (kyber.Point, error) {
 	if err := point.UnmarshalBinary(bz); err != nil {
 		return nil, err
 	}
+	if point.Equal(newBLSSuite().G1().Point().Null()) {
+		return nil, errors.New("invalid bls public key: point at infinity")
+	}
 	return point, nil
 }
 
