@@ -325,6 +325,13 @@ func NewMultiBLSFromPublicKey(publicKey []byte) (MultiPublicKeyI, error) {
 	if len(mpk.PublicKeys) == 0 || len(mpk.Bitmap) == 0 || mpk.Threshold > uint32(len(mpk.PublicKeys)) {
 		return nil, errInvalidPK
 	}
+	if mpk.Threshold > 0 {
+		for i := 1; i < len(mpk.PublicKeys); i++ {
+			if bytes.Compare(mpk.PublicKeys[i-1], mpk.PublicKeys[i]) >= 0 {
+				return nil, errInvalidPK
+			}
+		}
+	}
 	// Reject unused bits because kyber ignores them during verification.
 	if remainder := len(mpk.PublicKeys) % 8; remainder != 0 {
 		paddingMask := byte(0xff << remainder)

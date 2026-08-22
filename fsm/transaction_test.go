@@ -1,6 +1,7 @@
 package fsm
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"github.com/canopy-network/canopy/lib"
@@ -14,6 +15,7 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"math"
 	"math/big"
+	"sort"
 	"testing"
 	"time"
 )
@@ -347,6 +349,9 @@ func TestCheckTxAcceptsSerializedMultiBLSSigner(t *testing.T) {
 	require.NoError(t, sm.UpdateParam("fee", ParamSendFee, &lib.UInt64Wrapper{Value: 1}))
 
 	signers := newTestKeyGroups(t, 3)
+	sort.Slice(signers, func(i, j int) bool {
+		return bytes.Compare(signers[i].PublicKey.Bytes(), signers[j].PublicKey.Bytes()) < 0
+	})
 	points := make([]kyber.Point, 0, len(signers))
 	for _, kg := range signers {
 		point, err := crypto.BytesToBLS12381Point(kg.PublicKey.Bytes())
