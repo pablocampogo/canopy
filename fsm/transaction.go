@@ -1,6 +1,7 @@
 package fsm
 
 import (
+	"bytes"
 	"github.com/canopy-network/canopy/lib"
 	"github.com/canopy-network/canopy/lib/crypto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -228,6 +229,9 @@ func (s *StateMachine) CheckSignature(tx *lib.Transaction, authorizedSigners [][
 	publicKey, e := crypto.NewPublicKeyFromBytes(tx.Signature.PublicKey)
 	if e != nil {
 		return nil, ErrInvalidPublicKey(e)
+	}
+	if !bytes.Equal(tx.Signature.PublicKey, publicKey.Bytes()) {
+		return nil, ErrInvalidSignature()
 	}
 	// Legacy "RLP" was historically an ordinary memo for non-Ethereum keys.
 	// RLP.V2 is reserved and always requires an Ethereum key.

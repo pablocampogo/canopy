@@ -83,7 +83,8 @@ func TestMultiBLSBytesRoundTripPreservesOrderAndBitmap(t *testing.T) {
 	require.NoError(t, multiKey.AddSigner(keys[1].Sign([]byte("hello")), 0))
 	require.NoError(t, multiKey.AddSigner(keys[0].Sign([]byte("hello")), 2))
 
-	roundTrip, err := NewMultiBLSFromPublicKey(multiKey.(*BLS12381MultiPublicKey).Bytes())
+	canonical := multiKey.(*BLS12381MultiPublicKey).Bytes()
+	roundTrip, err := NewMultiBLSFromPublicKey(canonical)
 	require.NoError(t, err)
 
 	originalPublicKeys := multiKey.PublicKeys()
@@ -101,6 +102,18 @@ func TestMultiBLSBytesRoundTripPreservesOrderAndBitmap(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, enabled, roundTripEnabled)
 	}
+
+	var encoded MultiPublicKey
+	require.NoError(t, proto.Unmarshal(canonical, &encoded))
+	encoded.Bitmap[0] |= 0x80
+	paddingVariant, err := proto.Marshal(&encoded)
+	require.NoError(t, err)
+	_, err = NewMultiBLSFromPublicKey(paddingVariant)
+	require.Error(t, err)
+
+	unknownFieldVariant := append(bytes.Clone(canonical), 0x78, 0x01)
+	_, err = NewMultiBLSFromPublicKey(unknownFieldVariant)
+	require.Error(t, err)
 }
 
 func TestMultiBLSThresholdEnforcedByVerifyBytes(t *testing.T) {

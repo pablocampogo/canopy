@@ -606,6 +606,20 @@ func TestCheckSignature(t *testing.T) {
 	}
 }
 
+func TestCheckSignatureRejectsNonCanonicalPublicKey(t *testing.T) {
+	key, err := crypto.NewETHSECP256K1PrivateKey()
+	require.NoError(t, err)
+	tx := &lib.Transaction{Time: 1}
+	signBytes, errI := tx.GetSignBytes()
+	require.NoError(t, errI)
+	tx.Signature = &lib.Signature{
+		PublicKey: key.PublicKey().(*crypto.ETHSECP256K1PublicKey).BytesWithPrefix(),
+		Signature: key.Sign(signBytes),
+	}
+	_, errI = (&StateMachine{}).CheckSignature(tx, [][]byte{key.PublicKey().Address().Bytes()}, nil)
+	require.ErrorContains(t, errI, "invalid signature")
+}
+
 func TestCheckReplay(t *testing.T) {
 	tests := []struct {
 		name   string

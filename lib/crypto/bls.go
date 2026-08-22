@@ -322,6 +322,13 @@ func NewMultiBLSFromPublicKey(publicKey []byte) (MultiPublicKeyI, error) {
 	if len(mpk.PublicKeys) == 0 || len(mpk.Bitmap) == 0 || mpk.Threshold > uint32(len(mpk.PublicKeys)) {
 		return nil, errInvalidPK
 	}
+	// Reject unused bits because kyber ignores them during verification.
+	if remainder := len(mpk.PublicKeys) % 8; remainder != 0 {
+		paddingMask := byte(0xff << remainder)
+		if mpk.Bitmap[len(mpk.Bitmap)-1]&paddingMask != 0 {
+			return nil, errInvalidPK
+		}
+	}
 	var points []kyber.Point
 	seen := make(map[string]struct{}, len(mpk.PublicKeys))
 	// convert to a kyber.point
@@ -343,7 +350,12 @@ func NewMultiBLSFromPublicKey(publicKey []byte) (MultiPublicKeyI, error) {
 	if err = mask.SetMask(mpk.Bitmap); err != nil {
 		return nil, err
 	}
-	return newBLSMultiPublicKey(mask, mpk.Threshold), nil
+	key := newBLSMultiPublicKey(mask, mpk.Threshold)
+	// Reject semantically equivalent protobuf encodings that would produce different transaction hashes.
+	if !bytes.Equal(publicKey, key.Bytes()) {
+		return nil, errInvalidPK
+	}
+	return key, nil
 }
 
 // NewAccountAuthMultiBLSFromPublicKey creates a serialized multisig public key intended for account authorization.
@@ -445,7 +457,7 @@ func (b *BLS12381MultiPublicKey) Bytes() []byte {
 	for _, key := range b.mask.Publics() {
 		publicKeys = append(publicKeys, NewBLS12381PublicKey(key).Bytes())
 	}
-	bz, _ := proto.Marshal(&MultiPublicKey{
+	bz, _ := proto.MarshalOptions{Deterministic: true}.Marshal(&MultiPublicKey{
 		PublicKeys: publicKeys,
 		Bitmap:     b.Bitmap(),
 		Threshold:  b.threshold,
