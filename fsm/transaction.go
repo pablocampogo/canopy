@@ -335,6 +335,19 @@ func (s *StateMachine) CheckReplay(tx *lib.Transaction, txHash string) lib.Error
 				}
 			}
 		}
+		intentID, e := tx.GetMultisigIntentID()
+		if e != nil {
+			return e
+		}
+		if len(intentID) != 0 {
+			txResult, err = store.GetTxByHash(intentID)
+			if err != nil {
+				return err
+			}
+			if txResult != nil && txResult.TxHash != "" {
+				return lib.ErrDuplicateTx(lib.BytesToString(intentID))
+			}
+		}
 	}
 	// RLP.V2 uses the account nonce for replay protection and a canonical CreatedHeight sentinel.
 	if tx.Memo == RLPV2Indicator {
