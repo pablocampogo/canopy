@@ -183,7 +183,7 @@ func (c *Controller) processQueue(startHeight, stopHeight uint64, queue map[uint
 		// lock the controller
 		c.Lock()
 		// process the block message received from the peer
-		_, err := c.HandlePeerBlock(blockMsg, true)
+		_, err := c.handlePeerBlock(blockMsg, true, height+1 == stopHeight)
 		// unlock controller
 		c.Unlock()
 		// check error from HandlePeerBlock
