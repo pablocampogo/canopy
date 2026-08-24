@@ -613,8 +613,8 @@ func (b *BFT) Pacemaker() bool {
 			continue
 		}
 		totalVotedPower += validator.VotingPower
-		// if totalVotePower >= +33%, it's safe to advance to that round
-		if totalVotedPower >= lib.Uint64ReducePercentage(b.ValidatorSet.MinimumMaj23, 50) {
+		// if totalVotePower > 1/3, it's safe to advance to that round
+		if totalVotedPower > b.ValidatorSet.TotalPower/3 {
 			pacemakerRound = vote.Qc.Header.Round // set the highest round where +1/3rds have been
 			break
 		}

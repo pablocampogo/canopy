@@ -751,6 +751,19 @@ func TestPacemaker(t *testing.T) {
 	}
 }
 
+func TestPacemakerRequiresMoreThanOneThird(t *testing.T) {
+	c := newTestConsensus(t, Propose, 2)
+	c.bft.ValidatorSet.ValidatorSet.ValidatorSet[0].VotingPower = 67
+	c.bft.ValidatorSet.ValidatorSet.ValidatorSet[1].VotingPower = 33
+	c.bft.ValidatorSet.TotalPower = 100
+	msg := &Message{Qc: &QC{Header: c.view(RoundInterrupt, 3)}}
+	require.NoError(t, msg.Sign(c.valKeys[1]))
+	require.NoError(t, c.bft.HandleMessage(msg))
+
+	c.bft.Pacemaker()
+	require.Equal(t, uint64(1), c.bft.Round)
+}
+
 func TestScheduleForceRound(t *testing.T) {
 	c := newTestConsensus(t, Election, 1)
 	c.bft.Round = 2
