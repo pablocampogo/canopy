@@ -155,12 +155,9 @@ func (b *BFT) Start() {
 			func() {
 				b.Controller.Lock()
 				defer b.Controller.Unlock()
-				// calculate time since
-				since := time.Since(resetBFT.StartTime)
-				// allow if 'since' is less than 1 block old
-				if int(since.Milliseconds()) < b.Config.BlockTimeMS() {
+				processTime = validProcessTime(resetBFT.StartTime, time.Duration(b.Config.BlockTimeMS())*time.Millisecond)
+				if processTime != 0 {
 					b.log.Infof("Using included timestamp to calculate process time: %s", resetBFT.StartTime.Format(time.StampMilli))
-					processTime = since
 				}
 				// if is a root-chain update reset back to round 0 but maintain locks to prevent 'fork attacks'
 				// else increment the height and don't maintain locks
@@ -183,6 +180,13 @@ func (b *BFT) Start() {
 			}()
 		}
 	}
+}
+
+func validProcessTime(start time.Time, maxAge time.Duration) time.Duration {
+	if since := time.Since(start); since > 0 && since < maxAge {
+		return since
+	}
+	return 0
 }
 
 // HandlePhase() is the main BFT Phase stepping loop

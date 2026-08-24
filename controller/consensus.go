@@ -316,11 +316,6 @@ func (c *Controller) ListenForConsensus() {
 		}
 		// execute in a sub-function to unify error handling and enable 'defer' functionality
 		if err := func() (err lib.ErrorI) {
-			// check and add the message to the cache to prevent duplicates
-			if ok := cache.Add(msg); !ok {
-				// duplicate, exit
-				return
-			}
 			// create a new 'consensus message' to unmarshal the bytes to
 			bftMsg := new(bft.Message)
 			// try to unmarshal into a consensus message
@@ -328,13 +323,12 @@ func (c *Controller) ListenForConsensus() {
 				// exit with error
 				return
 			}
-			// check whether the message should be gossiped
-			gossip, exit := c.ShouldGossip(bftMsg)
-			if gossip {
-				c.GossipConsensus(bftMsg, msg.Sender.Address.PublicKey)
+			// consensus messages must come directly from their signer
+			if !validConsensusSender(msg.Sender.Address.PublicKey, bftMsg) {
+				return lib.ErrInvalidSigner()
 			}
-			// some messages should only be gossiped
-			if exit {
+			// check and add the message to the cache to prevent duplicates
+			if ok := cache.Add(msg); !ok {
 				return
 			}
 			// route the message to the consensus module
@@ -351,6 +345,10 @@ func (c *Controller) ListenForConsensus() {
 			c.P2P.ChangeReputation(msg.Sender.Address.PublicKey, p2p.InvalidMsgRep)
 		}
 	}
+}
+
+func validConsensusSender(sender []byte, msg *bft.Message) bool {
+	return msg.GetSignature() != nil && bytes.Equal(sender, msg.Signature.PublicKey)
 }
 
 // ShouldGossip() controls whether a consensus message should be gossiped
@@ -487,10 +485,6 @@ func (c *Controller) SendToReplicas(replicas lib.ValidatorSet, msg lib.Signable)
 		// log the error
 		c.log.Error(err.Error())
 	}
-	// if gossip mode is set, no need to send to replicas, the SelfSend will propagate to all the peers
-	if c.P2P.GossipMode() {
-		return
-	}
 	// for each replica (validator) in the set
 	for _, replica := range replicas.ValidatorSet.ValidatorSet {
 		// skip self
@@ -500,8 +494,6 @@ func (c *Controller) SendToReplicas(replicas lib.ValidatorSet, msg lib.Signable)
 			// if not self, send directly to peer using P2P
 			if err := c.P2P.SendTo(replica.PublicKey, Cons, msg); err != nil {
 				// log the error (warning is used in case 'some' replicas are not reachable)
-				// for the case of gossiping, it is guaranteed that this warning will
-				// happen as not all peers will be reachable
 				c.log.Warn(err.Error())
 			}
 		}
@@ -518,7 +510,7 @@ func (c *Controller) SendToProposer(msg lib.Signable) {
 		return
 	}
 	// check if sending to 'self' or peer
-	if c.Consensus.SelfIsProposer() || c.P2P.GossipMode() {
+	if c.Consensus.SelfIsProposer() {
 		// send using internal routing
 		if err := c.P2P.SelfSend(c.PublicKey, Cons, msg); err != nil {
 			// log the error
@@ -621,14 +613,7 @@ func (c *Controller) UpdateP2PMustConnect(v *lib.ConsensusValidators) {
 	if selfIsValidator {
 		// log the must connect update
 		c.log.Info("Self IS a validator 👍")
-		gossip := c.Config.GossipThreshold > 0 && lenMustConnects >= int(c.Config.GossipThreshold)
-		c.P2P.SetGossipMode(gossip)
-		// on gossip, explicitly rely on the dial peers for new peer connections
-		if gossip {
-			c.log.Infof("consensus gossip on, using dialPeers for connections, validators: %d", lenMustConnects)
-			return
-		}
-		c.log.Infof("Updating must connects with %d validators, gossip: %t", lenMustConnects, gossip)
+		c.log.Infof("Updating must connects with %d validators", lenMustConnects)
 		// send the list to the p2p module
 		c.P2P.MustConnectsReceiver <- mustConnects
 	} else {

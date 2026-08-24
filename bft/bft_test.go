@@ -89,6 +89,12 @@ func TestStartElectionPhase(t *testing.T) {
 	}
 }
 
+func TestValidProcessTimeRejectsFutureTimestamp(t *testing.T) {
+	require.Zero(t, validProcessTime(time.Now().Add(time.Hour), time.Second))
+	require.Zero(t, validProcessTime(time.Now().Add(-time.Hour), time.Second))
+	require.Positive(t, validProcessTime(time.Now().Add(-time.Millisecond), time.Second))
+}
+
 func TestStartElectionVotePhase(t *testing.T) {
 	tests := []struct {
 		name                 string
