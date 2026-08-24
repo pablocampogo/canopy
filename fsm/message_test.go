@@ -2072,6 +2072,7 @@ func TestHandleMessageCertificateResults(t *testing.T) {
 					NetworkId:  1,
 					RootHeight: 3,
 					ChainId:    lib.CanopyChainId + 1,
+					Phase:      lib.Phase_PRECOMMIT_VOTE,
 				},
 				Results:     certificateResults,
 				ResultsHash: certificateResults.Hash(),
