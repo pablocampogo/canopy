@@ -25,12 +25,11 @@ const (
 var (
 	logOnce sync.Once // helper to log the compression method used once
 
-	latestStatePrefix     = lib.JoinLenPrefix([]byte("s/")) // prefix designated for the LatestStateStore where the most recent blobs of state data are held
-	historicStatePrefix   = lib.JoinLenPrefix([]byte("h/")) // prefix designated for the HistoricalStateStore where the historical blobs of state data are held
-	stateCommitmentPrefix = lib.JoinLenPrefix([]byte("c/")) // prefix designated for the StateCommitmentStore (immutable, tree DB) built of hashes of state store data
-	indexerPrefix         = lib.JoinLenPrefix([]byte("i/")) // prefix designated for indexer (transactions, blocks, and quorum certificates)
-	stateCommitIDPrefix   = lib.JoinLenPrefix([]byte("x/")) // prefix designated for the commit ID (height and state merkle root)
-	lastCommitIDPrefix    = lib.JoinLenPrefix([]byte("a/")) // prefix designated for the latest commit ID for easy access (latest height and latest state merkle root)
+	latestStatePrefix   = lib.JoinLenPrefix([]byte("s/")) // prefix designated for the LatestStateStore where the most recent blobs of state data are held
+	historicStatePrefix = lib.JoinLenPrefix([]byte("h/")) // prefix designated for the HistoricalStateStore where the historical blobs of state data are held
+	indexerPrefix       = lib.JoinLenPrefix([]byte("i/")) // prefix designated for indexer (transactions, blocks, and quorum certificates)
+	stateCommitIDPrefix = lib.JoinLenPrefix([]byte("x/")) // shared prefix for state commitment nodes and commit IDs (height and state merkle root)
+	lastCommitIDPrefix  = lib.JoinLenPrefix([]byte("a/")) // prefix designated for the latest commit ID for easy access (latest height and latest state merkle root)
 
 	_ lib.StoreI = &Store{} // enforce the Store interface
 )
@@ -212,7 +211,7 @@ func (s *Store) NewReadOnly(queryVersion uint64) (lib.StoreI, lib.ErrorI) {
 		log:        s.log,
 		db:         s.db,
 		ss:         stateReader,
-		sc:         NewDefaultSMT(NewTxn(hssReader, nil, stateCommitmentPrefix, false, false, true)),
+		sc:         NewDefaultSMT(NewTxn(hssReader, nil, stateCommitIDPrefix, false, false, true)),
 		Indexer:    &Indexer{NewTxn(hssReader, nil, indexerPrefix, false, false, false), s.config},
 		metrics:    s.metrics,
 		mu:         &sync.Mutex{},
@@ -361,7 +360,6 @@ func (s *Store) Rollback(targetVersion uint64) lib.ErrorI {
 	for _, prefix := range [][]byte{
 		historicStatePrefix,
 		indexerPrefix,
-		stateCommitmentPrefix,
 		stateCommitIDPrefix,
 	} {
 		if err = s.pruneVersionWindow(
@@ -814,7 +812,7 @@ func (s *Store) Compact(version uint64, prefix []byte) lib.ErrorI {
 
 // CompactAll is a helper function that runs compaction for all store prefixes sequentially
 func (s *Store) CompactAll(version uint64) lib.ErrorI {
-	prefixes := [][]byte{latestStatePrefix, historicStatePrefix, stateCommitmentPrefix, indexerPrefix}
+	prefixes := [][]byte{latestStatePrefix, historicStatePrefix, stateCommitIDPrefix, indexerPrefix}
 	for _, prefix := range prefixes {
 		if err := s.Compact(version, prefix); err != nil {
 			return err
