@@ -67,20 +67,22 @@ iteration over stored data.
 */
 
 type Store struct {
-	version    uint64        // version of the store
-	db         *pebble.DB    // underlying database
-	writer     *pebble.Batch // the shared batch writer that allows committing it all at once
-	ss         *Txn          // reference to the state store
-	sc         *SMT          // reference to the state commitment store
-	*Indexer                 // reference to the indexer store
-	metrics    *lib.Metrics  // telemetry
-	syncing    atomic.Bool   // when true, skip compaction to avoid write stalls during sync
-	log        lib.LoggerI   // logger
-	config     lib.Config    // config
-	mu         *sync.Mutex   // mutex for concurrent commits
-	compaction atomic.Bool   // atomic boolean for compaction status
-	backup     atomic.Bool   // atomic boolean for backup status
-	isTxn      bool          // flag indicating if the store is in transaction mode
+	version    uint64         // version of the store
+	db         *pebble.DB     // underlying database
+	writer     *pebble.Batch  // the shared batch writer that allows committing it all at once
+	ss         *Txn           // reference to the state store
+	sc         *SMT           // reference to the state commitment store
+	*Indexer                  // reference to the indexer store
+	metrics    *lib.Metrics   // telemetry
+	syncing    atomic.Bool    // when true, skip compaction to avoid write stalls during sync
+	log        lib.LoggerI    // logger
+	config     lib.Config     // config
+	mu         *sync.Mutex    // mutex for concurrent commits
+	compaction atomic.Bool    // atomic boolean for compaction status
+	backup     atomic.Bool    // atomic boolean for backup status
+	isTxn      bool           // flag indicating if the store is in transaction mode
+	ownsDB     bool           // whether Close should close the shared database
+	jobs       sync.WaitGroup // background compaction and backup jobs
 }
 
 // New() creates a new instance of a StoreI either in memory or an actual disk DB
@@ -189,6 +191,7 @@ func NewStoreWithDB(config lib.Config, db *pebble.DB, metrics *lib.Metrics, log 
 		mu:         &sync.Mutex{},
 		compaction: atomic.Bool{},
 		backup:     atomic.Bool{},
+		ownsDB:     true,
 	}, nil
 }
 
@@ -536,6 +539,9 @@ func (s *Store) IsRootCached() bool { return s.sc != nil }
 // Root() retrieves the root hash of the StateCommitStore, representing the current root of the
 // Sparse Merkle Tree. This hash is used for verifying the integrity and consistency of the state.
 func (s *Store) Root() (root []byte, err lib.ErrorI) {
+	if s.isTxn {
+		return nil, ErrCommitDB(fmt.Errorf("root is not supported for nested transactions"))
+	}
 	// if smt not cached
 	if s.sc == nil {
 		startTime := time.Now()
@@ -567,6 +573,10 @@ func (s *Store) Root() (root []byte, err lib.ErrorI) {
 
 // Reset() discard and re-sets the stores writer
 func (s *Store) Reset() {
+	if s.isTxn {
+		s.Discard()
+		return
+	}
 	// create a new batch for the next version
 	nextVersion := s.version + 1
 	newWriter := s.db.NewBatch()
@@ -599,11 +609,15 @@ func (s *Store) Discard() {
 	}
 }
 
-// Close() discards the writer and closes the database connection
+// Close() discards the writer and closes an owned database connection
 func (s *Store) Close() lib.ErrorI {
+	s.jobs.Wait()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Discard()
+	if !s.ownsDB {
+		return nil
+	}
 	if err := s.db.Flush(); err != nil {
 		return ErrCloseDB(fmt.Errorf("flush error: %v", err))
 	}
@@ -676,7 +690,9 @@ func (s *Store) MaybeCompact() {
 	compactionInterval := s.config.StoreConfig.LSSCompactionInterval
 	version := s.Version()
 	if compactionInterval > 0 && version%compactionInterval == 0 {
+		s.jobs.Add(1)
 		go func() {
+			defer s.jobs.Done()
 			now := time.Now()
 			// trigger compaction of store keys
 			if err := s.Compact(version, latestStatePrefix); err != nil {
@@ -718,13 +734,14 @@ func (s *Store) MaybeBackup() {
 		return
 	}
 	// ensure that only one backup can run at a time to avoid overlapping backups
-	if s.backup.Load() {
+	if !s.backup.CompareAndSwap(false, true) {
 		s.log.Debugf("data backup skipped [%d]: already in progress", version)
 		return
 	}
-	s.backup.Store(true)
 	// perform the backup in a separate goroutine to avoid blocking the main thread
+	s.jobs.Add(1)
 	go func() {
+		defer s.jobs.Done()
 		var err error
 		start := time.Now()
 		defer func() {
@@ -754,16 +771,21 @@ func (s *Store) MaybeBackup() {
 		// flush the memtable to SST before checkpointing so the backup does not
 		// depend on WAL replay for recovery (commits use NoSync so WAL records
 		// may not be durable on disk at checkpoint time)
+		s.mu.Lock()
+		version = s.Version()
 		if err = s.db.Flush(); err != nil {
+			s.mu.Unlock()
 			err = fmt.Errorf("flush before checkpoint: %w", err)
 			return
 		}
 		// perform the backup using pebble's checkpointing mechanism which creates a
 		// consistent snapshot of the database at the specified directory
 		if err = s.db.Checkpoint(tempBackupDir); err != nil {
+			s.mu.Unlock()
 			err = fmt.Errorf("checkpoint creation: %w", err)
 			return
 		}
+		s.mu.Unlock()
 		// write the current height to a separate file
 		heightFile := filepath.Join(tempBackupDir, "height.txt")
 		if err = os.WriteFile(heightFile, fmt.Appendf(nil, "%d", version), 0644); err != nil {

@@ -420,6 +420,7 @@ func newTestStateMachine(t *testing.T) StateMachine {
 		},
 	}
 	require.NoError(t, sm.SetParams(DefaultParams()))
+	require.NoError(t, db.IndexBlock(&lib.BlockResult{BlockHeader: &lib.BlockHeader{Height: 1}}))
 	db.Commit()
 	require.NoError(t, sm.SetParams(DefaultParams()))
 	return sm

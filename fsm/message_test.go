@@ -2137,6 +2137,7 @@ func TestHandleMessageCertificateResults(t *testing.T) {
 			// commit to lock in the validator set for the previous height
 			// this is required because LoadCommittee() doesn't read from the current
 			// database 'txn' rather the underlying db (which does not yet have the validator set)
+			require.NoError(t, sm.Store().(lib.StoreI).IndexBlock(&lib.BlockResult{BlockHeader: &lib.BlockHeader{Height: sm.height}}))
 			_, err := sm.Store().(lib.StoreI).Commit()
 			require.NoError(t, err)
 			// increment height as height 2 ignores byzantine evidence

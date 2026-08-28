@@ -158,6 +158,9 @@ func (s *StateMachine) CheckTx(transaction []byte, txHash string, batchVerifier 
 		if err != nil {
 			return
 		}
+		if tx.MessageType != msg.Name() {
+			return nil, lib.ErrUnknownMessageName(tx.MessageType)
+		}
 		// validate the fee associated with the transaction
 		if err = s.CheckFee(tx.Fee, msg); err != nil {
 			return
