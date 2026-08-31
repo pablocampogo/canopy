@@ -164,8 +164,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            canopynetwork/canopy:go-${{ steps.prep.outputs.docker_tag }}
-            canopynetwork/canopy:go-latest
+            canopynetwork/canopy-plugin-go:${{ steps.prep.outputs.docker_tag }}
+            canopynetwork/canopy-plugin-go:latest
           build-args: |
             BRANCH=${{ github.event.inputs.tag }}
             BUILD_PATH=cmd/cli
@@ -208,8 +208,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            canopynetwork/canopy:python-${{ steps.prep.outputs.docker_tag }}
-            canopynetwork/canopy:python-latest
+            canopynetwork/canopy-plugin-python:${{ steps.prep.outputs.docker_tag }}
+            canopynetwork/canopy-plugin-python:latest
           build-args: |
             BRANCH=${{ github.event.inputs.tag }}
             BUILD_PATH=cmd/cli
@@ -252,8 +252,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            canopynetwork/canopy:typescript-${{ steps.prep.outputs.docker_tag }}
-            canopynetwork/canopy:typescript-latest
+            canopynetwork/canopy-plugin-typescript:${{ steps.prep.outputs.docker_tag }}
+            canopynetwork/canopy-plugin-typescript:latest
           build-args: |
             BRANCH=${{ github.event.inputs.tag }}
             BUILD_PATH=cmd/cli
@@ -296,8 +296,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            canopynetwork/canopy:kotlin-${{ steps.prep.outputs.docker_tag }}
-            canopynetwork/canopy:kotlin-latest
+            canopynetwork/canopy-plugin-kotlin:${{ steps.prep.outputs.docker_tag }}
+            canopynetwork/canopy-plugin-kotlin:latest
           build-args: |
             BRANCH=${{ github.event.inputs.tag }}
             BUILD_PATH=cmd/cli
@@ -340,8 +340,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            canopynetwork/canopy:csharp-${{ steps.prep.outputs.docker_tag }}
-            canopynetwork/canopy:csharp-latest
+            canopynetwork/canopy-plugin-csharp:${{ steps.prep.outputs.docker_tag }}
+            canopynetwork/canopy-plugin-csharp:latest
           build-args: |
             BRANCH=${{ github.event.inputs.tag }}
             BUILD_PATH=cmd/cli
