@@ -914,5 +914,5 @@ func TestRestrictedAddresses(t *testing.T) {
 	require.True(t, sm.isRestricted(dynamic), "validators must apply local additions while voting")
 	require.False(t, sm.isRestricted(make([]byte, 20)))
 	require.False(t, sm.isRestricted(nil))
-	require.Len(t, lib.RestrictedAddresses, 120)
+	require.Len(t, lib.RestrictedAddresses, 124)
 }
