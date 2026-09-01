@@ -15,6 +15,8 @@ import (
 const (
 	CurrentProtocolVersion         = 2
 	slowApplyTransactionsThreshold = 2 * time.Second
+	// defaultPluginStateReadLimit bounds plugin range reads when no explicit limit is provided.
+	defaultPluginStateReadLimit uint64 = 5000
 )
 
 /* This is the 'main' file of the state machine store, with the structure definition and other high level operations */
@@ -850,7 +852,7 @@ func (s *StateMachine) StateRead(request *lib.PluginStateReadRequest) (response 
 		var entries []*lib.PluginStateEntry
 		// apply the default range limit
 		if r.Limit == 0 {
-			r.Limit = 5000
+			r.Limit = defaultPluginStateReadLimit
 		}
 		// while the iterator is valid and the limit is not reached
 		for i := uint64(0); i < r.Limit && it.Valid(); i++ {
