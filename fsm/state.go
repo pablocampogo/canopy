@@ -823,6 +823,7 @@ func (s *StateMachine) isRestricted(address []byte) bool {
 	if _, found := lib.RestrictedAddresses[value]; found {
 		return true
 	}
+	// AcceptAllProposals bypasses only node-local restrictions that may vary across validators and affect BFT consensus; the deterministic hardcoded list always applies.
 	if s.proposeVoteConfig == AcceptAllProposals {
 		return false
 	}
