@@ -10,6 +10,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -346,6 +348,14 @@ func TestCheckTx(t *testing.T) {
 
 func TestCheckTxRejectsRestrictedSignerForAnyMessage(t *testing.T) {
 	sm := newTestStateMachine(t)
+	restrictedTxTotal := prometheus.NewCounter(prometheus.CounterOpts{})
+	sm.Metrics = &lib.Metrics{FSMMetrics: lib.FSMMetrics{
+		CheckTxDecodeTime:    prometheus.NewHistogram(prometheus.HistogramOpts{}),
+		CheckTxReplayTime:    prometheus.NewHistogram(prometheus.HistogramOpts{}),
+		CheckTxMessageTime:   prometheus.NewHistogram(prometheus.HistogramOpts{}),
+		CheckTxSignatureTime: prometheus.NewHistogram(prometheus.HistogramOpts{}),
+		RestrictedTxTotal:    restrictedTxTotal,
+	}}
 	kg := newTestKeyGroup(t)
 	sm.Config.RestrictedAddresses = []string{kg.Address.String()}
 	sm.SetProposalVoteConfig(ProposalApproveList)
@@ -356,6 +366,9 @@ func TestCheckTxRejectsRestrictedSignerForAnyMessage(t *testing.T) {
 	require.NoError(t, err)
 	_, errI := sm.CheckTx(bz, "", nil)
 	require.ErrorContains(t, errI, "restricted address")
+	metric := new(dto.Metric)
+	require.NoError(t, restrictedTxTotal.Write(metric))
+	require.Equal(t, float64(1), metric.GetCounter().GetValue())
 }
 
 func TestCheckTxAcceptsSerializedMultiBLSSigner(t *testing.T) {
