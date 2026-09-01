@@ -55,10 +55,6 @@ func (s *StateMachine) HandleMessage(msg lib.MessageI) lib.ErrorI {
 
 // HandleMessageSend() is the proper handler for a `Send` message
 func (s *StateMachine) HandleMessageSend(msg *MessageSend) lib.ErrorI {
-	// ensure the address isn't blocked by the network
-	if s.isRestricted(msg.FromAddress) || s.isRestricted(msg.ToAddress) {
-		return ErrRestrictedAddress()
-	}
 	// vesting sends must preflight recipient compatibility before mutating sender state
 	if msg.VestingStartHeight != 0 || msg.VestingEndHeight != 0 {
 		if err := s.ValidateAccountAddWithVesting(msg); err != nil {

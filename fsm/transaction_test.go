@@ -344,6 +344,20 @@ func TestCheckTx(t *testing.T) {
 	}
 }
 
+func TestCheckTxRejectsRestrictedSignerForAnyMessage(t *testing.T) {
+	sm := newTestStateMachine(t)
+	kg := newTestKeyGroup(t)
+	sm.Config.RestrictedAddresses = []string{kg.Address.String()}
+	sm.SetProposalVoteConfig(ProposalApproveList)
+	require.NoError(t, sm.UpdateParam("fee", ParamStakeFee, &lib.UInt64Wrapper{Value: 1}))
+	tx, err := NewStakeTx(kg.PrivateKey, kg.PublicKey.Bytes(), newTestAddress(t, 1), "", []uint64{1}, 1, 1, 1, 1, sm.Height(), true, false, "")
+	require.NoError(t, err)
+	bz, err := lib.Marshal(tx)
+	require.NoError(t, err)
+	_, errI := sm.CheckTx(bz, "", nil)
+	require.ErrorContains(t, errI, "restricted address")
+}
+
 func TestCheckTxAcceptsSerializedMultiBLSSigner(t *testing.T) {
 	sm := newTestStateMachine(t)
 	require.NoError(t, sm.UpdateParam("fee", ParamSendFee, &lib.UInt64Wrapper{Value: 1}))

@@ -816,6 +816,9 @@ func (s *StateMachine) SetProposalVoteConfig(c GovProposalVoteConfig) { s.propos
 
 // isRestricted() checks if an address is restricted from transacting
 func (s *StateMachine) isRestricted(address []byte) bool {
+	if len(address) != crypto.AddressSize {
+		return false
+	}
 	value := hex.EncodeToString(address)
 	if _, found := lib.RestrictedAddresses[value]; found {
 		return true
