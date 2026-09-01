@@ -2,6 +2,7 @@ package fsm
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"slices"
@@ -896,4 +897,28 @@ func TestConformStateToParamUpdate_MinimumStake_ViaMessageHandler(t *testing.T) 
 	val3, err := sm.GetValidator(crypto.NewAddressFromBytes(validators[3].Address))
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), val3.UnstakingHeight, "delegate 3 should NOT be unstaking")
+}
+
+func TestRestrictedAddresses(t *testing.T) {
+	hardcoded, err := hex.DecodeString("0330070fd38ec3bb94f58fa55d40368271e9e54a")
+	require.NoError(t, err)
+	dynamic, err := hex.DecodeString("1111111111111111111111111111111111111111")
+	require.NoError(t, err)
+	sm := &StateMachine{Config: lib.Config{StateMachineConfig: lib.StateMachineConfig{
+		RestrictedAddresses: []string{"0x1111111111111111111111111111111111111111"},
+	}}}
+
+	require.True(t, sm.isRestricted(hardcoded))
+	require.False(t, sm.isRestricted(dynamic), "a committed +2/3 block must override local additions")
+	sm.SetProposalVoteConfig(ProposalApproveList)
+	require.True(t, sm.isRestricted(dynamic), "validators must apply local additions while voting")
+	require.False(t, sm.isRestricted(make([]byte, 20)))
+	require.Len(t, lib.RestrictedAddresses, 120)
+}
+
+func TestHandleMessageSendRejectsHardcodedRestrictedAddress(t *testing.T) {
+	address, err := hex.DecodeString("0330070fd38ec3bb94f58fa55d40368271e9e54a")
+	require.NoError(t, err)
+	errI := (&StateMachine{}).HandleMessageSend(&MessageSend{FromAddress: address, ToAddress: make([]byte, 20), Amount: 1})
+	require.ErrorContains(t, errI, "restricted address")
 }
