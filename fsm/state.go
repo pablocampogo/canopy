@@ -2,6 +2,7 @@ package fsm
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"runtime/debug"
@@ -812,6 +813,27 @@ func (s *StateMachine) TotalVDFIterations() uint64                    { return s
 func (s *StateMachine) Discard()                                      { s.store.(lib.StoreI).Discard() }
 func (s *StateMachine) ProposalVoteConfig() GovProposalVoteConfig     { return s.proposeVoteConfig }
 func (s *StateMachine) SetProposalVoteConfig(c GovProposalVoteConfig) { s.proposeVoteConfig = c }
+
+// isRestricted() checks if an address is restricted from transacting
+func (s *StateMachine) isRestricted(address []byte) bool {
+	if len(address) != crypto.AddressSize {
+		return false
+	}
+	value := hex.EncodeToString(address)
+	if _, found := lib.RestrictedAddresses[value]; found {
+		return true
+	}
+	// AcceptAllProposals bypasses only node-local restrictions that may vary across validators and affect BFT consensus; the deterministic hardcoded list always applies.
+	if s.proposeVoteConfig == AcceptAllProposals {
+		return false
+	}
+	for _, configured := range s.Config.RestrictedAddresses {
+		if strings.TrimPrefix(strings.ToLower(configured), "0x") == value {
+			return true
+		}
+	}
+	return false
+}
 
 var _ lib.PluginCompatibleFSM = new(StateMachine)
 

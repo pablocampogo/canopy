@@ -179,6 +179,12 @@ func (s *StateMachine) CheckTx(transaction []byte, txHash string, batchVerifier 
 	if err != nil {
 		return
 	}
+	if s.isRestricted(sender.Bytes()) || s.isRestricted(recipient) {
+		if s.Metrics != nil {
+			s.Metrics.RestrictedTxCount.Inc()
+		}
+		return nil, ErrRestrictedAddress()
+	}
 	if s.Metrics != nil {
 		s.Metrics.CheckTxSignatureTime.Observe(time.Since(signatureStartTime).Seconds())
 	}
