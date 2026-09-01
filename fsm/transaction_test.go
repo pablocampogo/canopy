@@ -348,13 +348,13 @@ func TestCheckTx(t *testing.T) {
 
 func TestCheckTxRejectsRestrictedSignerForAnyMessage(t *testing.T) {
 	sm := newTestStateMachine(t)
-	restrictedTxTotal := prometheus.NewCounter(prometheus.CounterOpts{})
+	restrictedTxCount := prometheus.NewGauge(prometheus.GaugeOpts{})
 	sm.Metrics = &lib.Metrics{FSMMetrics: lib.FSMMetrics{
 		CheckTxDecodeTime:    prometheus.NewHistogram(prometheus.HistogramOpts{}),
 		CheckTxReplayTime:    prometheus.NewHistogram(prometheus.HistogramOpts{}),
 		CheckTxMessageTime:   prometheus.NewHistogram(prometheus.HistogramOpts{}),
 		CheckTxSignatureTime: prometheus.NewHistogram(prometheus.HistogramOpts{}),
-		RestrictedTxTotal:    restrictedTxTotal,
+		RestrictedTxCount:    restrictedTxCount,
 	}}
 	kg := newTestKeyGroup(t)
 	sm.Config.RestrictedAddresses = []string{kg.Address.String()}
@@ -367,8 +367,22 @@ func TestCheckTxRejectsRestrictedSignerForAnyMessage(t *testing.T) {
 	_, errI := sm.CheckTx(bz, "", nil)
 	require.ErrorContains(t, errI, "restricted address")
 	metric := new(dto.Metric)
-	require.NoError(t, restrictedTxTotal.Write(metric))
-	require.Equal(t, float64(1), metric.GetCounter().GetValue())
+	require.NoError(t, restrictedTxCount.Write(metric))
+	require.Equal(t, float64(1), metric.GetGauge().GetValue())
+}
+
+func TestBeginBlockResetsRestrictedTxCount(t *testing.T) {
+	sm := newTestStateMachine(t)
+	sm.height = 1
+	restrictedTxCount := prometheus.NewGauge(prometheus.GaugeOpts{})
+	restrictedTxCount.Set(2)
+	sm.Metrics = &lib.Metrics{FSMMetrics: lib.FSMMetrics{RestrictedTxCount: restrictedTxCount}}
+
+	_, err := sm.BeginBlock()
+	require.NoError(t, err)
+	metric := new(dto.Metric)
+	require.NoError(t, restrictedTxCount.Write(metric))
+	require.Zero(t, metric.GetGauge().GetValue())
 }
 
 func TestCheckTxAcceptsSerializedMultiBLSSigner(t *testing.T) {

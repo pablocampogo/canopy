@@ -174,7 +174,7 @@ type FSMMetrics struct {
 	CheckTxReplayTime                        prometheus.Histogram // how long does replay validation take?
 	CheckTxMessageTime                       prometheus.Histogram // how long does message validation/fee/signer resolution take?
 	CheckTxSignatureTime                     prometheus.Histogram // how long does signature validation take?
-	RestrictedTxTotal                        prometheus.Counter   // how many CheckTx calls were rejected for a restricted address?
+	RestrictedTxCount                        prometheus.Gauge     // how many restricted transactions were rejected in the current block?
 	StateOperationTime                       *prometheus.HistogramVec
 	ValidatorStatus                          *prometheus.GaugeVec // what's the status of this validator?
 	ValidatorType                            *prometheus.GaugeVec // what's the type of this validator?
@@ -548,9 +548,9 @@ func NewMetricsServer(nodeAddress crypto.AddressI, chainID float64, softwareVers
 				Name: "canopy_fsm_check_tx_signature_time",
 				Help: "Execution time of signature validation in CheckTx",
 			}),
-			RestrictedTxTotal: promauto.NewCounter(prometheus.CounterOpts{
-				Name: "canopy_fsm_restricted_tx_total",
-				Help: "Total CheckTx rejections caused by a restricted signer or recipient address",
+			RestrictedTxCount: promauto.NewGauge(prometheus.GaugeOpts{
+				Name: "canopy_fsm_restricted_tx_count",
+				Help: "Number of restricted signer or recipient transactions rejected in the current block",
 			}),
 			StateOperationTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
 				Name: "canopy_fsm_state_operation_time",

@@ -181,7 +181,7 @@ func (s *StateMachine) CheckTx(transaction []byte, txHash string, batchVerifier 
 	}
 	if s.isRestricted(sender.Bytes()) || s.isRestricted(recipient) {
 		if s.Metrics != nil {
-			s.Metrics.RestrictedTxTotal.Inc()
+			s.Metrics.RestrictedTxCount.Inc()
 		}
 		return nil, ErrRestrictedAddress()
 	}
