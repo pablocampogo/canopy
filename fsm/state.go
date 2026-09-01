@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"math"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -17,6 +16,8 @@ import (
 const (
 	CurrentProtocolVersion         = 2
 	slowApplyTransactionsThreshold = 2 * time.Second
+	// defaultPluginStateReadLimit bounds plugin range reads when no explicit limit is provided.
+	defaultPluginStateReadLimit uint64 = 5000
 )
 
 /* This is the 'main' file of the state machine store, with the structure definition and other high level operations */
@@ -122,6 +123,9 @@ func (s *StateMachine) Initialize(store lib.StoreI) (genesis bool, err lib.Error
 	// load the previous block
 	blk, e := s.LoadBlock(s.Height() - 1)
 	if e != nil {
+		if s.height == 1 && strings.Contains(e.Error(), "block not found") {
+			return
+		}
 		return false, e
 	}
 	// set totalVDFIterations in the state machine
@@ -868,9 +872,9 @@ func (s *StateMachine) StateRead(request *lib.PluginStateReadRequest) (response 
 		}
 		// calculate entries
 		var entries []*lib.PluginStateEntry
-		// allow 0 limit
+		// apply the default range limit
 		if r.Limit == 0 {
-			r.Limit = math.MaxUint64
+			r.Limit = defaultPluginStateReadLimit
 		}
 		// while the iterator is valid and the limit is not reached
 		for i := uint64(0); i < r.Limit && it.Valid(); i++ {
