@@ -65,7 +65,16 @@ jobs:
           GOARCH=amd64 CGO_ENABLED=0 GOOS=linux go build -a -o dist/signer-linux-amd64 ./cmd/signer/...
           GOARCH=arm64 CGO_ENABLED=0 GOOS=linux go build -a -o dist/signer-linux-arm64 ./cmd/signer/...
           GOARCH=arm64 CGO_ENABLED=0 GOOS=darwin go build -a -o dist/signer-darwin-arm64 ./cmd/signer/...
-          sha256sum dist/cli-* dist/signer-* > dist/SHA256SUMS
+          (
+            cd plugin/go
+            GOARCH=amd64 CGO_ENABLED=0 GOOS=linux go build -a -o ../../dist/go-plugin .
+            tar -czf ../../dist/go-plugin-linux-amd64.tar.gz -C ../../dist go-plugin
+            rm ../../dist/go-plugin
+            GOARCH=arm64 CGO_ENABLED=0 GOOS=linux go build -a -o ../../dist/go-plugin .
+            tar -czf ../../dist/go-plugin-linux-arm64.tar.gz -C ../../dist go-plugin
+            rm ../../dist/go-plugin
+          )
+          sha256sum dist/cli-* dist/signer-* dist/go-plugin-* > dist/SHA256SUMS
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v3
@@ -79,6 +88,8 @@ jobs:
             dist/signer-linux-amd64
             dist/signer-linux-arm64
             dist/signer-darwin-arm64
+            dist/go-plugin-linux-amd64.tar.gz
+            dist/go-plugin-linux-arm64.tar.gz
             dist/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -123,7 +134,7 @@ jobs:
             canopynetwork/canopy:${{ steps.prep.outputs.docker_tag }}
             canopynetwork/canopy:latest
           build-args: |
-            BRANCH=${{ github.event.inputs.tag }}
+            BRANCH=${{ needs.validate.outputs.tag }}
             BUILD_PATH=cmd/cli
 
   docker-go:
@@ -167,7 +178,7 @@ jobs:
             canopynetwork/canopy-plugin-go:${{ steps.prep.outputs.docker_tag }}
             canopynetwork/canopy-plugin-go:latest
           build-args: |
-            BRANCH=${{ github.event.inputs.tag }}
+            BRANCH=${{ needs.validate.outputs.tag }}
             BUILD_PATH=cmd/cli
 
   docker-python:
@@ -211,7 +222,7 @@ jobs:
             canopynetwork/canopy-plugin-python:${{ steps.prep.outputs.docker_tag }}
             canopynetwork/canopy-plugin-python:latest
           build-args: |
-            BRANCH=${{ github.event.inputs.tag }}
+            BRANCH=${{ needs.validate.outputs.tag }}
             BUILD_PATH=cmd/cli
 
   docker-typescript:
@@ -255,7 +266,7 @@ jobs:
             canopynetwork/canopy-plugin-typescript:${{ steps.prep.outputs.docker_tag }}
             canopynetwork/canopy-plugin-typescript:latest
           build-args: |
-            BRANCH=${{ github.event.inputs.tag }}
+            BRANCH=${{ needs.validate.outputs.tag }}
             BUILD_PATH=cmd/cli
 
   docker-kotlin:
@@ -299,7 +310,7 @@ jobs:
             canopynetwork/canopy-plugin-kotlin:${{ steps.prep.outputs.docker_tag }}
             canopynetwork/canopy-plugin-kotlin:latest
           build-args: |
-            BRANCH=${{ github.event.inputs.tag }}
+            BRANCH=${{ needs.validate.outputs.tag }}
             BUILD_PATH=cmd/cli
 
   docker-csharp:
@@ -343,5 +354,5 @@ jobs:
             canopynetwork/canopy-plugin-csharp:${{ steps.prep.outputs.docker_tag }}
             canopynetwork/canopy-plugin-csharp:latest
           build-args: |
-            BRANCH=${{ github.event.inputs.tag }}
+            BRANCH=${{ needs.validate.outputs.tag }}
             BUILD_PATH=cmd/cli
