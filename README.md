@@ -20,6 +20,8 @@ _Official golang implementation of the Canopy Network Protocol_
 Built on a recursive architecture, chains bootstrap each other into independence —  
 forming an `unstoppable` web of utility and security. 
 
+La calabaza
+
 **Here you'll find:**
 
 ➪ A recursive framework to build blockchains.
