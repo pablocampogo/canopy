@@ -15,7 +15,7 @@ func ErrCloseDB(err error) lib.ErrorI {
 }
 
 func ErrCommitDB(err error) lib.ErrorI {
-	return lib.NewError(lib.CodeCommitDB, lib.StorageModule, fmt.Sprintf("commitDB() failed with err: %s", err.Error()))
+	return lib.NewError(lib.CodeCommitDB, lib.StorageModule, fmt.Sprintf("commitDB() failed with error: %s", err.Error()))
 }
 
 func ErrCompactDB(err error) lib.ErrorI {
