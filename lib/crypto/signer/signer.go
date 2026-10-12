@@ -7,12 +7,33 @@ package signer
 
 import (
 	"bytes"
+	"encoding/asn1"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 
 	"github.com/canopy-network/canopy/fsm"
 	"github.com/canopy-network/canopy/lib"
 	"github.com/canopy-network/canopy/lib/crypto"
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
+)
+
+const (
+	// PreparedSendVersion identifies the stable external-signing interchange format.
+	PreparedSendVersion = "canopy-hsm-v1"
+
+	KeyTypeEd25519      = "ed25519"
+	KeyTypeSecp256k1    = "secp256k1"
+	KeyTypeEthSecp256k1 = "eth-secp256k1"
+
+	SigningPayloadMessage = "message"
+	SigningPayloadDigest  = "digest"
+
+	HashNone   = "none"
+	HashSHA256 = "sha256"
+
+	SignatureFormatRaw = "raw"
+	SignatureFormatDER = "der"
 )
 
 // SendRequest contains every operator-controlled field of a native send
@@ -44,6 +65,28 @@ type Details struct {
 	ChainID         uint64 `json:"chainID,string"`       // destination chain identifier
 	Memo            string `json:"memo,omitempty"`       // optional transaction memo
 	Time            uint64 `json:"time,string"`          // transaction time in Unix microseconds
+}
+
+// PreparedSend is a portable external-signing request. SigningPayload is the
+// exact hex-encoded byte string an HSM must sign. For Ed25519 it is the raw
+// canonical protobuf message. For secp256k1 it is the SHA-256 digest of that
+// message. Transaction and SignBytes are included for auditability and are
+// recomputed and compared by FinalizeSend before a signature is accepted.
+type PreparedSend struct {
+	Version            string           `json:"version"`
+	KeyType            string           `json:"keyType"`
+	PublicKey          string           `json:"publicKey"`
+	SignBytes          string           `json:"signBytes"`
+	SigningPayload     string           `json:"signingPayload"`
+	SigningPayloadType string           `json:"signingPayloadType"`
+	Hash               string           `json:"hash"`
+	Transaction        *lib.Transaction `json:"transaction"`
+}
+
+type signingProfile struct {
+	keyType     string
+	payloadType string
+	hash        string
 }
 
 // BuildSend() constructs an unsigned native send using Canopy's canonical
@@ -147,6 +190,228 @@ func SignSend(request SendRequest, privateKey crypto.PrivateKeyI) (*lib.Transact
 		return nil, fmt.Errorf("verify signed transaction: %w", err)
 	}
 	return transaction, nil
+}
+
+// PrepareSend constructs a native send and exposes the exact payload required
+// by an external signer. It supports the key types commonly available from
+// custody systems and HSMs: Ed25519, compressed secp256k1, and Ethereum-style
+// uncompressed secp256k1.
+func PrepareSend(request SendRequest, publicKey crypto.PublicKeyI) (*PreparedSend, error) {
+	transaction, err := BuildSend(request, publicKey)
+	if err != nil {
+		return nil, err
+	}
+	profile, err := profileForPublicKey(publicKey)
+	if err != nil {
+		return nil, err
+	}
+	signBytes, signErr := transaction.GetSignBytes()
+	if signErr != nil {
+		return nil, signErr
+	}
+	payload := signingPayload(profile, signBytes)
+	return &PreparedSend{
+		Version:            PreparedSendVersion,
+		KeyType:            profile.keyType,
+		PublicKey:          hex.EncodeToString(publicKey.Bytes()),
+		SignBytes:          hex.EncodeToString(signBytes),
+		SigningPayload:     hex.EncodeToString(payload),
+		SigningPayloadType: profile.payloadType,
+		Hash:               profile.hash,
+		Transaction:        transaction,
+	}, nil
+}
+
+// FinalizeSend validates a prepared request, canonicalizes a raw or ASN.1 DER
+// HSM signature, attaches it to the transaction, and verifies the completed
+// transaction. DER is valid only for secp256k1. Raw Ed25519 signatures are
+// passed through unchanged; raw secp256k1 signatures are normalized to low-S.
+func FinalizeSend(prepared *PreparedSend, signature []byte, format string) (*lib.Transaction, error) {
+	transaction, publicKey, profile, err := validatePreparedSend(prepared)
+	if err != nil {
+		return nil, err
+	}
+	canonicalSignature, err := canonicalizeSignature(publicKey, signature, format)
+	if err != nil {
+		return nil, err
+	}
+	transaction.Signature = &lib.Signature{
+		PublicKey: publicKey.Bytes(),
+		Signature: canonicalSignature,
+	}
+	if _, err = Inspect(transaction); err != nil {
+		return nil, fmt.Errorf("verify external signature for %s: %w", profile.keyType, err)
+	}
+	return transaction, nil
+}
+
+func validatePreparedSend(prepared *PreparedSend) (*lib.Transaction, crypto.PublicKeyI, signingProfile, error) {
+	if prepared == nil {
+		return nil, nil, signingProfile{}, fmt.Errorf("prepared send is nil")
+	}
+	if prepared.Version != PreparedSendVersion {
+		return nil, nil, signingProfile{}, fmt.Errorf("unsupported prepared send version %q", prepared.Version)
+	}
+	publicKeyBytes, err := hex.DecodeString(prepared.PublicKey)
+	if err != nil {
+		return nil, nil, signingProfile{}, fmt.Errorf("decode public key: %w", err)
+	}
+	publicKey, err := crypto.NewPublicKeyFromBytes(publicKeyBytes)
+	if err != nil {
+		return nil, nil, signingProfile{}, fmt.Errorf("decode public key: %w", err)
+	}
+	if !bytes.Equal(publicKey.Bytes(), publicKeyBytes) {
+		return nil, nil, signingProfile{}, fmt.Errorf("public key is not canonical")
+	}
+	profile, err := profileForPublicKey(publicKey)
+	if err != nil {
+		return nil, nil, signingProfile{}, err
+	}
+	if prepared.KeyType != profile.keyType || prepared.SigningPayloadType != profile.payloadType || prepared.Hash != profile.hash {
+		return nil, nil, signingProfile{}, fmt.Errorf("prepared signing profile does not match public key")
+	}
+	request, err := requestFromUnsignedTransaction(prepared.Transaction, publicKey)
+	if err != nil {
+		return nil, nil, signingProfile{}, err
+	}
+	transaction, err := BuildSend(request, publicKey)
+	if err != nil {
+		return nil, nil, signingProfile{}, err
+	}
+	signBytes, signErr := transaction.GetSignBytes()
+	if signErr != nil {
+		return nil, nil, signingProfile{}, signErr
+	}
+	if err = compareHexField("signBytes", prepared.SignBytes, signBytes); err != nil {
+		return nil, nil, signingProfile{}, err
+	}
+	if err = compareHexField("signingPayload", prepared.SigningPayload, signingPayload(profile, signBytes)); err != nil {
+		return nil, nil, signingProfile{}, err
+	}
+	return transaction, publicKey, profile, nil
+}
+
+func requestFromUnsignedTransaction(transaction *lib.Transaction, publicKey crypto.PublicKeyI) (SendRequest, error) {
+	if transaction == nil {
+		return SendRequest{}, fmt.Errorf("prepared transaction is nil")
+	}
+	if transaction.Signature != nil {
+		return SendRequest{}, fmt.Errorf("prepared transaction must not contain a signature")
+	}
+	if transaction.MessageType != fsm.MessageSendName {
+		return SendRequest{}, fmt.Errorf("transaction type must be %q", fsm.MessageSendName)
+	}
+	message, err := lib.FromAny(transaction.Msg)
+	if err != nil {
+		return SendRequest{}, err
+	}
+	send, ok := message.(*fsm.MessageSend)
+	if !ok {
+		return SendRequest{}, fmt.Errorf("transaction payload is not a native send")
+	}
+	if !bytes.Equal(send.FromAddress, publicKey.Address().Bytes()) {
+		return SendRequest{}, fmt.Errorf("sender does not match signing public key")
+	}
+	if send.VestingStartHeight != 0 || send.VestingCliffHeight != 0 || send.VestingEndHeight != 0 {
+		return SendRequest{}, fmt.Errorf("external signer supports liquid sends only")
+	}
+	if transaction.Nonce != 0 {
+		return SendRequest{}, fmt.Errorf("native send nonce must be zero")
+	}
+	return SendRequest{
+		Recipient:     hex.EncodeToString(send.ToAddress),
+		AmountUCNPY:   send.Amount,
+		FeeUCNPY:      transaction.Fee,
+		CreatedHeight: transaction.CreatedHeight,
+		NetworkID:     transaction.NetworkId,
+		ChainID:       transaction.ChainId,
+		Memo:          transaction.Memo,
+		Time:          transaction.Time,
+	}, nil
+}
+
+func profileForPublicKey(publicKey crypto.PublicKeyI) (signingProfile, error) {
+	switch publicKey.(type) {
+	case *crypto.ED25519PublicKey:
+		return signingProfile{KeyTypeEd25519, SigningPayloadMessage, HashNone}, nil
+	case *crypto.SECP256K1PublicKey:
+		return signingProfile{KeyTypeSecp256k1, SigningPayloadDigest, HashSHA256}, nil
+	case *crypto.ETHSECP256K1PublicKey:
+		return signingProfile{KeyTypeEthSecp256k1, SigningPayloadDigest, HashSHA256}, nil
+	default:
+		return signingProfile{}, fmt.Errorf("external signing does not support public key type %T", publicKey)
+	}
+}
+
+func signingPayload(profile signingProfile, signBytes []byte) []byte {
+	if profile.hash == HashSHA256 {
+		return crypto.Hash(signBytes)
+	}
+	return bytes.Clone(signBytes)
+}
+
+func compareHexField(name, encoded string, expected []byte) error {
+	decoded, err := hex.DecodeString(encoded)
+	if err != nil {
+		return fmt.Errorf("decode %s: %w", name, err)
+	}
+	if !bytes.Equal(decoded, expected) {
+		return fmt.Errorf("prepared %s does not match transaction", name)
+	}
+	return nil
+}
+
+func canonicalizeSignature(publicKey crypto.PublicKeyI, signature []byte, format string) ([]byte, error) {
+	switch publicKey.(type) {
+	case *crypto.ED25519PublicKey:
+		if format != SignatureFormatRaw {
+			return nil, fmt.Errorf("Ed25519 signatures require raw format")
+		}
+		if len(signature) != crypto.Ed25519SignatureSize {
+			return nil, fmt.Errorf("Ed25519 signature must be %d bytes", crypto.Ed25519SignatureSize)
+		}
+		return bytes.Clone(signature), nil
+	case *crypto.SECP256K1PublicKey, *crypto.ETHSECP256K1PublicKey:
+		return canonicalizeSecp256k1Signature(signature, format)
+	default:
+		return nil, fmt.Errorf("external signing does not support public key type %T", publicKey)
+	}
+}
+
+func canonicalizeSecp256k1Signature(signature []byte, format string) ([]byte, error) {
+	var r, s *big.Int
+	switch format {
+	case SignatureFormatRaw:
+		if len(signature) != crypto.SECP256K1SignatureSize {
+			return nil, fmt.Errorf("raw secp256k1 signature must be %d bytes", crypto.SECP256K1SignatureSize)
+		}
+		r = new(big.Int).SetBytes(signature[:32])
+		s = new(big.Int).SetBytes(signature[32:])
+	case SignatureFormatDER:
+		if len(signature) < 8 || len(signature) > 72 {
+			return nil, fmt.Errorf("DER secp256k1 signature must be between 8 and 72 bytes")
+		}
+		parsed := new(struct{ R, S *big.Int })
+		rest, err := asn1.Unmarshal(signature, parsed)
+		if err != nil || len(rest) != 0 || parsed.R == nil || parsed.S == nil {
+			return nil, fmt.Errorf("invalid DER secp256k1 signature")
+		}
+		r, s = parsed.R, parsed.S
+	default:
+		return nil, fmt.Errorf("unsupported signature format %q", format)
+	}
+	order := ethCrypto.S256().Params().N
+	if r.Sign() <= 0 || s.Sign() <= 0 || r.Cmp(order) >= 0 || s.Cmp(order) >= 0 {
+		return nil, fmt.Errorf("secp256k1 signature values are out of range")
+	}
+	halfOrder := new(big.Int).Rsh(new(big.Int).Set(order), 1)
+	if s.Cmp(halfOrder) > 0 {
+		s = new(big.Int).Sub(order, s)
+	}
+	canonical := make([]byte, crypto.SECP256K1SignatureSize)
+	r.FillBytes(canonical[:32])
+	s.FillBytes(canonical[32:])
+	return canonical, nil
 }
 
 // Inspect() verifies a signed native send and returns the exact fields covered by
