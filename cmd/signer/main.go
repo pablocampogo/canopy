@@ -4,6 +4,8 @@ package main
 
 import (
 	"bufio"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -39,6 +41,10 @@ func run(args []string, stdin *os.File, stdout, stderr io.Writer) error {
 	switch args[0] {
 	case "sign-send":
 		return signSend(args[1:], stdin, stdout, stderr)
+	case "prepare-send":
+		return prepareSend(args[1:], stdout, stderr)
+	case "finalize-send":
+		return finalizeSend(args[1:], stdout, stderr)
 	case "inspect":
 		return inspect(args[1:], stdout)
 	case "help", "-h", "--help":
@@ -52,11 +58,112 @@ func run(args []string, stdin *os.File, stdout, stderr io.Writer) error {
 func usage(w io.Writer) error {
 	_, _ = fmt.Fprintln(w, `Usage:
   signer sign-send --keystore-dir DIR --key ADDRESS_OR_NICKNAME REQUEST.json
+  signer prepare-send --public-key HEX [--payload-file FILE] REQUEST.json
+  signer finalize-send --signature-file FILE [--signature-format raw|der] [--signature-encoding raw|hex|base64] PREPARED.json
   signer inspect SIGNED.json
 
 sign-send reads the keystore password from a terminal without echo, or from
-standard input when piped. The signed /v1/tx JSON is written to standard output.`)
+standard input when piped. prepare-send and finalize-send keep private keys in
+an external HSM. Signed /v1/tx JSON is written to standard output.`)
 	return nil
+}
+
+// prepareSend constructs a canonical native send and writes a portable HSM request.
+func prepareSend(args []string, stdout, stderr io.Writer) error {
+	flags := flag.NewFlagSet("prepare-send", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	publicKeyHex := flags.String("public-key", "", "hex-encoded signing public key")
+	payloadFile := flags.String("payload-file", "", "optional file for the raw HSM signing payload")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *publicKeyHex == "" || flags.NArg() != 1 {
+		return fmt.Errorf("prepare-send requires --public-key and one request file")
+	}
+	publicKey, err := crypto.NewPublicKeyFromString(strings.TrimPrefix(*publicKeyHex, "0x"))
+	if err != nil {
+		return fmt.Errorf("decode public key: %w", err)
+	}
+	request := new(signer.SendRequest)
+	if err = decodeFile(flags.Arg(0), request); err != nil {
+		return fmt.Errorf("read request: %w", err)
+	}
+	prepared, err := signer.PrepareSend(*request, publicKey)
+	if err != nil {
+		return err
+	}
+	if *payloadFile != "" {
+		payload, decodeErr := hex.DecodeString(prepared.SigningPayload)
+		if decodeErr != nil {
+			return fmt.Errorf("decode signing payload: %w", decodeErr)
+		}
+		if writeErr := os.WriteFile(*payloadFile, payload, 0600); writeErr != nil {
+			return fmt.Errorf("write signing payload: %w", writeErr)
+		}
+	}
+	return writeJSON(stdout, prepared)
+}
+
+// finalizeSend attaches and verifies a signature produced by an external HSM.
+func finalizeSend(args []string, stdout, stderr io.Writer) error {
+	flags := flag.NewFlagSet("finalize-send", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	signatureFile := flags.String("signature-file", "", "file containing the HSM signature")
+	signatureFormat := flags.String("signature-format", signer.SignatureFormatRaw, "signature format: raw or der")
+	signatureEncoding := flags.String("signature-encoding", "hex", "signature file encoding: raw, hex, or base64")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *signatureFile == "" || flags.NArg() != 1 {
+		return fmt.Errorf("finalize-send requires --signature-file and one prepared request file")
+	}
+	prepared := new(signer.PreparedSend)
+	if err := decodeFile(flags.Arg(0), prepared); err != nil {
+		return fmt.Errorf("read prepared request: %w", err)
+	}
+	signature, err := readSignature(*signatureFile, *signatureEncoding)
+	if err != nil {
+		return err
+	}
+	transaction, err := signer.FinalizeSend(prepared, signature, *signatureFormat)
+	if err != nil {
+		return err
+	}
+	return writeJSON(stdout, transaction)
+}
+
+// readSignature reads a size-limited HSM signature file in a common encoding.
+func readSignature(path, encoding string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("read signature: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+	encoded, err := io.ReadAll(io.LimitReader(file, maxInputBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read signature: %w", err)
+	}
+	if len(encoded) > maxInputBytes {
+		return nil, fmt.Errorf("signature exceeds %d bytes", maxInputBytes)
+	}
+	switch encoding {
+	case "raw":
+		return encoded, nil
+	case "hex":
+		decoded, decodeErr := hex.DecodeString(strings.TrimSpace(string(encoded)))
+		if decodeErr != nil {
+			return nil, fmt.Errorf("decode hex signature: %w", decodeErr)
+		}
+		return decoded, nil
+	case "base64":
+		decoded, decodeErr := base64.StdEncoding.DecodeString(strings.TrimSpace(string(encoded)))
+		if decodeErr != nil {
+			return nil, fmt.Errorf("decode base64 signature: %w", decodeErr)
+		}
+		return decoded, nil
+	default:
+		return nil, fmt.Errorf("unsupported signature encoding %q", encoding)
+	}
 }
 
 // signSend() parses a send request, unlocks its key, and writes the signed transaction
