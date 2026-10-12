@@ -65,16 +65,7 @@ jobs:
           GOARCH=amd64 CGO_ENABLED=0 GOOS=linux go build -a -o dist/signer-linux-amd64 ./cmd/signer/...
           GOARCH=arm64 CGO_ENABLED=0 GOOS=linux go build -a -o dist/signer-linux-arm64 ./cmd/signer/...
           GOARCH=arm64 CGO_ENABLED=0 GOOS=darwin go build -a -o dist/signer-darwin-arm64 ./cmd/signer/...
-          (
-            cd plugin/go
-            GOARCH=amd64 CGO_ENABLED=0 GOOS=linux go build -a -o ../../dist/go-plugin .
-            tar -czf ../../dist/go-plugin-linux-amd64.tar.gz -C ../../dist go-plugin
-            rm ../../dist/go-plugin
-            GOARCH=arm64 CGO_ENABLED=0 GOOS=linux go build -a -o ../../dist/go-plugin .
-            tar -czf ../../dist/go-plugin-linux-arm64.tar.gz -C ../../dist go-plugin
-            rm ../../dist/go-plugin
-          )
-          sha256sum dist/cli-* dist/signer-* dist/go-plugin-* > dist/SHA256SUMS
+          sha256sum dist/cli-* dist/signer-* > dist/SHA256SUMS
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v3
@@ -88,8 +79,6 @@ jobs:
             dist/signer-linux-amd64
             dist/signer-linux-arm64
             dist/signer-darwin-arm64
-            dist/go-plugin-linux-amd64.tar.gz
-            dist/go-plugin-linux-arm64.tar.gz
             dist/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
