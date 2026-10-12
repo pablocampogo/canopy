@@ -8,6 +8,11 @@ The package performs no network or filesystem operations. It constructs the
 same protobuf transaction accepted by `POST /v1/tx`, signs the canonical bytes
 returned by `Transaction.GetSignBytes`, and immediately verifies the result.
 
+The `signer` executable also supports external HSMs without embedding a
+vendor-specific HSM SDK. `prepare-send` emits the exact bytes the HSM must sign,
+and `finalize-send` accepts the resulting signature and emits `/v1/tx`-ready
+JSON. The private key never enters the signer process.
+
 ## Security boundary
 
 The online system supplies these non-secret fields:
@@ -124,3 +129,66 @@ non-zero status if any signed byte was altered.
 Never provide a password or raw private key as a command-line argument or an
 environment variable. Both commonly leak through process inspection, logs, or
 diagnostic capture.
+
+## External HSM use
+
+The portable workflow supports these public keys:
+
+| Key type | Public key | `signingPayload` | HSM result |
+| --- | --- | --- | --- |
+| Ed25519 | 32 bytes | Raw canonical protobuf sign bytes | 64-byte raw signature |
+| secp256k1 | 33-byte compressed | SHA-256 digest of the sign bytes | Raw `r || s` or ASN.1 DER |
+| Ethereum-style secp256k1 | 64-byte `x || y` | SHA-256 digest of the sign bytes | Raw `r || s` or ASN.1 DER |
+
+Prepare the request using the public key. Public keys may be passed on the
+command line because they are not secret:
+
+```sh
+signer prepare-send \
+  --public-key "$PUBLIC_KEY_HEX" \
+  --payload-file payload.bin \
+  request.json > prepared.json
+```
+
+`prepared.json` contains the unsigned transaction, its canonical protobuf sign
+bytes, and a hex `signingPayload`; `payload.bin` contains those exact decoded
+bytes for an HSM CLI or SDK. The accompanying `signingPayloadType` and `hash`
+fields are authoritative:
+
+- Ed25519: sign the decoded `signingPayload` as a raw message using pure
+  Ed25519. Do not pre-hash it or use Ed25519ph.
+- secp256k1: sign the decoded 32-byte digest directly. For PKCS#11 this is
+  normally `CKM_ECDSA`, not `CKM_ECDSA_SHA256`; the latter would hash the digest
+  a second time.
+
+Save the HSM result as raw bytes, hex, or base64, then finalize it. PKCS#11
+ECDSA commonly returns raw `r || s`, while several managed KMS products return
+ASN.1 DER:
+
+```sh
+# Raw r || s encoded as hex (the defaults)
+signer finalize-send \
+  --signature-file signature.hex \
+  prepared.json > signed.json
+
+# DER signature emitted as binary
+signer finalize-send \
+  --signature-file signature.der \
+  --signature-format der \
+  --signature-encoding raw \
+  prepared.json > signed.json
+```
+
+The finalizer recomputes every prepared field, converts DER when requested,
+normalizes secp256k1 signatures to low-S, attaches the public key and signature,
+and verifies the complete transaction. It rejects altered prepared requests,
+unsupported key types, invalid signature encodings, and signatures that do not
+match the transaction.
+
+Broadcast `signed.json` directly:
+
+```sh
+curl -X POST "$CANOPY_RPC/v1/tx" \
+  -H 'Content-Type: application/json' \
+  --data-binary @signed.json
+```

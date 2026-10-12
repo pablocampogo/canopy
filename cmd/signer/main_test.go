@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -119,5 +121,72 @@ func TestSignSendRejectsUnknownRequestField(t *testing.T) {
 	// ensure strict request decoding rejects the unknown field
 	if err = run([]string{"sign-send", "--keystore-dir", t.TempDir(), "--key", "key", path}, input, &bytes.Buffer{}, &bytes.Buffer{}); err == nil {
 		t.Fatal("expected request decoding error")
+	}
+}
+
+func TestPrepareAndFinalizeSendCommands(t *testing.T) {
+	directory := t.TempDir()
+	key := crypto.BytesToED25519Private(ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x24}, ed25519.SeedSize)))
+	request := signer.SendRequest{
+		Recipient:     "502c0b3d6ccd1c6f164aa5536b2ba2cb9e80c711",
+		AmountUCNPY:   1_000_000,
+		FeeUCNPY:      10_000,
+		CreatedHeight: 2_044_370,
+		NetworkID:     1,
+		ChainID:       1,
+		Time:          1_786_569_463_230_678,
+	}
+	requestJSON, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestPath := filepath.Join(directory, "request.json")
+	if err = os.WriteFile(requestPath, requestJSON, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	payloadPath := filepath.Join(directory, "payload.bin")
+	var preparedJSON, errorOutput bytes.Buffer
+	if err = run([]string{
+		"prepare-send", "--public-key", key.PublicKey().String(), "--payload-file", payloadPath, requestPath,
+	}, nil, &preparedJSON, &errorOutput); err != nil {
+		t.Fatalf("prepare: %v; stderr: %s", err, errorOutput.String())
+	}
+	prepared := new(signer.PreparedSend)
+	if err = json.Unmarshal(preparedJSON.Bytes(), prepared); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := hex.DecodeString(prepared.SigningPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloadFile, err := os.ReadFile(payloadPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(payloadFile, payload) {
+		t.Fatal("payload file does not match prepared signing payload")
+	}
+	signaturePath := filepath.Join(directory, "signature.hex")
+	if err = os.WriteFile(signaturePath, []byte(hex.EncodeToString(key.Sign(payload))+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	preparedPath := filepath.Join(directory, "prepared.json")
+	if err = os.WriteFile(preparedPath, preparedJSON.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var signedJSON bytes.Buffer
+	if err = run([]string{
+		"finalize-send", "--signature-file", signaturePath, preparedPath,
+	}, nil, &signedJSON, &errorOutput); err != nil {
+		t.Fatalf("finalize: %v; stderr: %s", err, errorOutput.String())
+	}
+	transaction := new(lib.Transaction)
+	if err = json.Unmarshal(signedJSON.Bytes(), transaction); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = signer.Inspect(transaction); err != nil {
+		t.Fatalf("inspect finalized transaction: %v", err)
 	}
 }
