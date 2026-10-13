@@ -14,6 +14,14 @@ import (
 // dexLPEvictionIDDomain separates replacement withdrawal IDs from other deterministic DEX IDs.
 const dexLPEvictionIDDomain = "dex-lp-eviction-v1"
 
+// CanoLiqChainId is canoLiq's committee / chain id on Canopy mainnet
+const CanoLiqChainId = uint64(29)
+
+// CanoLiqDexFallbackFixHeight is the height canoLiq (chain 29) adopts the v0.1.29 cert-pinned
+// liveness-fallback decision; below it, chain 29 keeps the pre-v0.1.29 decision to unhalt from
+// the 171,013 halt. Set to halt height + 720 blocks (~2h runway at 10s/block) for the upgrade window
+const CanoLiqDexFallbackFixHeight = uint64(171_733)
+
 /* Dex.go implements logic to handle AMM style atomic exchanges between root & nested chains
    not to be confused with 1 way order book swaps implemented in swap.go */
 
@@ -99,6 +107,11 @@ func (s *StateMachine) HandleDexBatch(chainId uint64, results *lib.CertificateRe
 	localBatch, err := s.GetDexBatch(chainId, true)
 	if err != nil {
 		return
+	}
+	// below the fix height, chain 29 keeps the pre-v0.1.29 decision (flag off the swapped
+	// remoteBatch) to unhalt; other chains are unaffected as the gate is keyed on chain id
+	if isNested && s.Config.ChainId == CanoLiqChainId && s.Height() < CanoLiqDexFallbackFixHeight {
+		livenessFallback = remoteBatch.LivenessFallback
 	}
 	// if executing the liveness fallback (nested chain only)
 	if livenessFallback {
