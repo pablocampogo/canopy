@@ -3444,6 +3444,30 @@ $ curl -X POST http://localhost:50002/v1/eth \
 }
 ```
 
+### canopy_sendRawTransaction
+
+Submits the same signed transaction accepted by `eth_sendRawTransaction`, but returns both transaction identifiers. The standard Ethereum method remains unchanged for wallet compatibility.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "canopy_sendRawTransaction",
+  "params": ["0x<signed-transaction>"],
+  "id": 1
+}
+```
+
+```json
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": {
+    "ethereumHash": "0x<ethereum-transaction-hash>",
+    "nativeHash": "<canopy-transaction-hash>"
+  }
+}
+```
+
 # Admin
 
 🚨**Important: All admin commands assume secure https connection**

@@ -112,6 +112,8 @@ func (s *Server) handleEthereumRPCRequest(ptr *ethRPCRequest) ethRPCResponse {
 		ethResponse, err = s.EthGetCode(args)
 	case `eth_sendRawTransaction`:
 		ethResponse, err = s.EthSendRawTransaction(args)
+	case `canopy_sendRawTransaction`:
+		ethResponse, err = s.CanopySendRawTransaction(args)
 	case `eth_call`:
 		ethResponse, err = s.EthCall(args)
 	case `eth_estimateGas`:
@@ -406,6 +408,19 @@ func (s *Server) EthGetCode(args []any) (any, error) {
 // EthSendRawTransaction() converts the RLP transaction into a Canopy compatible transaction and submits it
 // - a valid RLP signature is considered a valid signature in Canopy for send transactions
 func (s *Server) EthSendRawTransaction(args []any) (any, error) {
+	hashes, err := s.sendRawTransaction(args)
+	if err != nil {
+		return nil, err
+	}
+	return hashes.EthereumHash, nil
+}
+
+// CanopySendRawTransaction() submits an RLP transaction and returns its Ethereum and native Canopy hashes.
+func (s *Server) CanopySendRawTransaction(args []any) (any, error) {
+	return s.sendRawTransaction(args)
+}
+
+func (s *Server) sendRawTransaction(args []any) (*canopySendRawTransactionResponse, error) {
 	// extract the raw transaction bytes
 	rawTx, err := bytesFromArgs(args)
 	if err != nil {
@@ -422,6 +437,7 @@ func (s *Server) EthSendRawTransaction(args []any) (any, error) {
 		return nil, err
 	}
 	txHashString := ethHashStringFromTransaction(transaction)
+	nativeHashString := crypto.HashString(bz)
 	pendingEthTxMu.Lock()
 	defer pendingEthTxMu.Unlock()
 	oldHash, oldBz, underpriced := s.pendingEthReplacement(transaction)
@@ -438,8 +454,10 @@ func (s *Server) EthSendRawTransaction(args []any) (any, error) {
 		return nil, err
 	}
 	removePendingEthTx(oldHash)
-	// return the transaction hash
-	return txHashString, nil
+	return &canopySendRawTransactionResponse{
+		EthereumHash: txHashString,
+		NativeHash:   nativeHashString,
+	}, nil
 }
 
 // EthCall() simulates a call to a 'smart contract' for Canopy
@@ -1298,6 +1316,11 @@ func (s *Server) pendingEthReplacement(tx *lib.Transaction) (hash string, bz []b
 }
 
 // TYPES BELOW
+
+type canopySendRawTransactionResponse struct {
+	EthereumHash string `json:"ethereumHash"`
+	NativeHash   string `json:"nativeHash"`
+}
 
 // ethRPCRequest is the JSON RPC 2.0 request structure
 type ethRPCRequest struct {
