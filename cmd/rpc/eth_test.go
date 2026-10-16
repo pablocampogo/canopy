@@ -171,6 +171,36 @@ func TestEthSendRawTransactionInsertsSynchronously(t *testing.T) {
 	require.ErrorContains(t, replacementErr, "replacement transaction underpriced")
 }
 
+func TestCanopySendRawTransactionReturnsEthereumAndNativeHashes(t *testing.T) {
+	clearAllPendingEthTxsForTest()
+	defer clearAllPendingEthTxsForTest()
+	key, err := ethCrypto.GenerateKey()
+	require.NoError(t, err)
+	raw := mustNewSignedRawEthTxForRPCWithKey(t, key, 0)
+	tx, txErr := fsm.RLPToCanopyTransactionV2(raw)
+	require.NoError(t, txErr)
+	bz, marshalErr := lib.Marshal(tx)
+	require.NoError(t, marshalErr)
+	mempool := &controller.Mempool{Mempool: lib.NewMempool(lib.DefaultMempoolConfig()), L: &sync.Mutex{}}
+	ctrl := &controller.Controller{Mempool: mempool}
+	setUnexportedField(t, ctrl, "isSyncing", &atomic.Bool{})
+	server := &Server{controller: ctrl}
+
+	response := server.handleEthereumRPCRequest(&ethRPCRequest{
+		ID:      1,
+		JSONRPC: "2.0",
+		Method:  "canopy_sendRawTransaction",
+		Params:  json.RawMessage(`["` + hexutil.Encode(raw) + `"]`),
+	})
+
+	require.Nil(t, response.Error)
+	hashes, ok := response.Result.(*canopySendRawTransactionResponse)
+	require.True(t, ok)
+	require.Equal(t, ethHashStringFromTransaction(tx), hashes.EthereumHash)
+	require.Equal(t, crypto.HashString(bz), hashes.NativeHash)
+	require.True(t, mempool.Contains(hashes.NativeHash))
+}
+
 func TestEthSendRawTransactionReplacementPolicy(t *testing.T) {
 	clearAllPendingEthTxsForTest()
 	defer clearAllPendingEthTxsForTest()
