@@ -5,8 +5,8 @@
 // Usage: semver [--check-server-version] <version> (a leading "v" is optional;
 // exit 0 means valid). When --check-server-version is set (used by the main
 // release workflow, not the plugin releases), it additionally asserts that
-// <version> matches rpc.SoftwareVersion from cmd/rpc/server.go, ignoring only
-// the optional "v" prefix (build metadata such as "+beta" must match).
+// <version> matches lib.SoftwareVersion, ignoring only the optional "v" prefix
+// (build metadata such as "+beta" must match).
 package main
 
 import (
@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/canopy-network/canopy/cmd/rpc"
 	"github.com/canopy-network/canopy/lib"
 )
 
@@ -26,11 +25,11 @@ func main() {
 }
 
 // run validates the single version argument, optionally cross-checking it
-// against the software version embedded in cmd/rpc/server.go.
+// against lib.SoftwareVersion.
 func run(args []string) error {
 	fs := flag.NewFlagSet("semver", flag.ContinueOnError)
 	checkServerVersion := fs.Bool("check-server-version", false,
-		"also require the version to match rpc.SoftwareVersion from cmd/rpc/server.go")
+		"also require the version to match lib.SoftwareVersion")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -41,8 +40,8 @@ func run(args []string) error {
 	if !lib.IsValidVersion(version) {
 		return fmt.Errorf("invalid semantic version: %q (expected MAJOR.MINOR.PATCH, e.g. 1.2.3 or v1.2.3)", version)
 	}
-	if *checkServerVersion && !lib.VersionsEqual(version, rpc.SoftwareVersion) {
-		return fmt.Errorf("version mismatch: release %q does not match rpc.SoftwareVersion %q in cmd/rpc/server.go", version, rpc.SoftwareVersion)
+	if *checkServerVersion && !lib.MatchesSoftwareVersion(version) {
+		return fmt.Errorf("version mismatch: release %q does not match lib.SoftwareVersion %q", version, lib.SoftwareVersion)
 	}
 	return nil
 }
