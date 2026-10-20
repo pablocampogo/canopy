@@ -41,7 +41,7 @@ func run(args []string) error {
 		return fmt.Errorf("invalid semantic version: %q (expected MAJOR.MINOR.PATCH, e.g. 1.2.3 or v1.2.3)", version)
 	}
 	if *checkServerVersion && !lib.MatchesSoftwareVersion(version) {
-		return fmt.Errorf("version mismatch: release %q does not match lib.SoftwareVersion %q", version, lib.SoftwareVersion)
+		return fmt.Errorf("version mismatch: remember to update the version number in lib/version.go")
 	}
 	return nil
 }
