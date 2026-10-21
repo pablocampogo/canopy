@@ -42,6 +42,7 @@ const PluginBuild = "go-plugin v1 (base SDK + detached custom RPC query path)"
 func StartPlugin(c Config) *Plugin {
 	// log the build marker so the running version is obvious in the plugin log
 	log.Printf("==== STARTING %s ====", PluginBuild)
+	log.Printf("PABLITO WAS HERE")
 	var conn net.Conn
 	// connect to the socket
 	sockPath := filepath.Join(c.DataDirPath, socketPath)
