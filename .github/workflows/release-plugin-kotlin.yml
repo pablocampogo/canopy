@@ -77,6 +77,8 @@ jobs:
         with:
           tag_name: ${{ needs.validate.outputs.tag }}
           name: "Kotlin Plugin ${{ needs.validate.outputs.tag }}"
+          # Keep the repo "Latest" label on the newest core release, not on plugins.
+          make_latest: false
           body: |
             Kotlin Plugin Release ${{ needs.validate.outputs.tag }}
             
@@ -96,14 +98,12 @@ jobs:
 
       # Rolling release consumed by the auto-updater. The fixed "latest-plugin"
       # tag always points at the newest plugin release; the version is embedded
-      # in the release name. Marked as a prerelease so the legacy auto-updater
-      # (which skips prereleases) keeps using the per-version release above.
+      # in the release name.
       - name: Update rolling latest-plugin release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest-plugin
           name: ${{ needs.validate.outputs.tag }}
-          prerelease: true
           files: |
             plugin/kotlin/release/kotlin-plugin.tar.gz
         env:
